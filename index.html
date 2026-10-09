@@ -1,1 +1,1021 @@
-a
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NKT-Collage Studio</title>
+<style>
+  :root {
+    --bg: #0f1220; --panel: #181c30; --line: #2a3050; --text: #e8ebf7;
+    --muted: #8f97b8; --accent: #6c7bff; --accent-2: #ff6ca8;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  body.dragging::after { content: "Drop photos or videos to add them"; position: fixed; inset: 10px; border: 3px dashed var(--accent); border-radius: 18px; background: rgba(15,18,32,.8); display: flex; align-items: center; justify-content: center; font-size: 22px; z-index: 20; pointer-events: none; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 22px 16px 60px; }
+  h1 { font-size: 24px; margin: 0 0 4px; text-align: center; }
+  .sub { color: var(--muted); margin: 0 0 18px; font-size: 14px; text-align: center; }
+  button {
+    font: inherit; color: var(--text); background: #232846; border: 1px solid var(--line);
+    border-radius: 10px; padding: 8px 13px; cursor: pointer;
+    transition: background .15s, border-color .15s, transform .05s;
+  }
+  button:hover:not(:disabled) { background: #2c3256; border-color: #3d4573; }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border: none; font-weight: 600; color: #fff; }
+  button.primary:hover:not(:disabled) { filter: brightness(1.08); background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+  button.sm { padding: 4px 8px; font-size: 12px; border-radius: 8px; }
+  button.on { border-color: var(--accent); background: rgba(108,123,255,.22); }
+  button.danger:hover:not(:disabled) { background: #5a2030; border-color: #8a3048; }
+  .layout { display: grid; grid-template-columns: 1fr 360px; gap: 18px; align-items: start; }
+  @media (max-width: 920px) { .layout { grid-template-columns: 1fr; } }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .bar.below { margin: 12px 0 0; }
+  .spacer { flex: 1; }
+  .stage { background: #0b0e1a; border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: flex; justify-content: center; align-items: center; min-height: 240px; }
+  #cv { max-width: 100%; max-height: 70vh; width: auto; height: auto; border-radius: 4px; box-shadow: 0 8px 30px rgba(0,0,0,.45); touch-action: none; }
+  .inl { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .inl input[type=number], .inl select, select.s { font: inherit; color: var(--text); background: #232846; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+  .inl input[type=number] { width: 68px; }
+  .hint { font-size: 12px; color: var(--muted); margin: 8px 2px 0; }
+  aside { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 6px 12px 12px; max-height: calc(100vh - 30px); overflow: auto; position: sticky; top: 14px; }
+  @media (max-width: 920px) { aside { position: static; max-height: none; } }
+  details { border-bottom: 1px solid var(--line); padding: 10px 0; }
+  details:last-child { border-bottom: none; }
+  summary { cursor: pointer; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin-bottom: 4px; }
+  details[open] > summary { margin-bottom: 10px; }
+  .f { margin-bottom: 11px; font-size: 13px; color: var(--muted); }
+  .f label { display: flex; justify-content: space-between; margin-bottom: 4px; }
+  .f label b { color: var(--text); font-weight: 600; }
+  .f textarea, .f select, .f input[type=text], .f input[type=number] { width: 100%; font: inherit; color: var(--text); background: #232846; border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; }
+  .f textarea { resize: vertical; min-height: 54px; }
+  .f input[type=range] { width: 100%; accent-color: var(--accent); }
+  .f input[type=color] { width: 46px; height: 30px; border: 1px solid var(--line); border-radius: 6px; background: none; padding: 0; }
+  .f.chk { display: flex; align-items: center; gap: 8px; }
+  .f.chk label { margin: 0; display: inline; }
+  .f.colr { display: flex; align-items: center; justify-content: space-between; }
+  .f.colr label { margin: 0; }
+  .f.btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .ratios { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 10px; }
+  .ratios button { padding: 6px 2px; font-size: 12px; }
+  .lrow { display: flex; align-items: center; gap: 4px; padding: 5px 6px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; font-size: 13px; }
+  .lrow.on { border-color: var(--accent); background: rgba(108,123,255,.15); }
+  .lrow .nm { flex: 1; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lrow.hid .nm { opacity: .45; text-decoration: line-through; }
+  .lrow .ic { width: 18px; text-align: center; }
+  .empty { font-size: 13px; color: var(--muted); }
+  #toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); background: #232846; border: 1px solid var(--accent); padding: 10px 16px; border-radius: 10px; font-size: 13px; max-width: 90vw; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 30; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>NKT-Collage Studio</h1>
+  <p class="sub">Mix photos, videos and text on one canvas. Drag to move, use the corner squares to resize, and download a picture or a video. Everything happens offline, so nothing is uploaded.</p>
+
+  <div class="layout">
+    <div>
+      <div class="bar">
+        <button class="primary" id="addPhoto">＋ Photos</button>
+        <button class="primary" id="addVideo">＋ Videos</button>
+        <button class="primary" id="addText">＋ Text</button>
+        <button id="arrange" title="Shuffle everything into a new layout">↻ Auto-arrange</button>
+        <span class="spacer"></span>
+        <button id="undo" title="Undo (Ctrl+Z)" disabled>↶ Undo</button>
+        <button id="redo" title="Redo (Ctrl+Shift+Z)" disabled>↷ Redo</button>
+        <button id="clear" class="danger" title="Remove everything from the canvas">Clear</button>
+      </div>
+      <div class="stage"><canvas id="cv" width="1080" height="1080"></canvas></div>
+      <p class="hint">Click an item to select it · drag to move · white squares resize · round handle rotates · double-click a photo or video to move the picture inside its frame · arrow keys nudge · Delete removes.</p>
+      <div class="bar below">
+        <button id="play">▶ Play videos</button>
+        <button id="restart">⏮ Restart</button>
+        <label class="inl"><input type="checkbox" id="lock" checked> Keep proportions on corners</label>
+        <span class="spacer"></span>
+        <label class="inl">Size
+          <select id="expSize">
+            <option value="1080">Full (1080)</option>
+            <option value="720">Medium (720)</option>
+            <option value="480">Small (480)</option>
+          </select>
+        </label>
+        <button class="primary" id="dlPng">Download PNG</button>
+        <button id="dlJpg">Download JPG</button>
+      </div>
+      <div class="bar below">
+        <label class="inl">Video length <input type="number" id="vlen" min="1" max="600" value="10"> seconds</label>
+        <button class="primary" id="dlVid">⏺ Record video</button>
+        <button id="vstop" hidden>■ Stop</button>
+        <span class="inl" id="vstat"></span>
+      </div>
+    </div>
+
+    <aside>
+      <details open id="secItem"><summary>Selected item</summary><div id="itemBox"></div></details>
+      <details open><summary>Layers</summary><div id="layerBox"></div></details>
+      <details open><summary>Canvas</summary><div id="canvasBox"></div></details>
+    </aside>
+  </div>
+</div>
+<input type="file" id="fPhoto" accept="image/*" multiple hidden>
+<input type="file" id="fVideo" accept="video/*" multiple hidden>
+<div id="toast"></div>
+
+<script>
+(() => {
+'use strict';
+const $ = (s, r = document) => r.querySelector(s);
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === false || v == null) continue;
+    if (k === 'class') e.className = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else if (k === 'value') e.value = v;
+    else if (v === true) e.setAttribute(k, '');
+    else e.setAttribute(k, v);
+  }
+  kids.flat().forEach(c => { if (c != null) e.append(c.nodeType ? c : document.createTextNode(c)); });
+  return e;
+}
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rad = d => d * Math.PI / 180;
+let _id = 0;
+const uid = () => 'L' + (++_id) + Math.random().toString(36).slice(2, 5);
+
+const FONTS = [
+  { n: 'Bold sans', f: '"Arial Black", Impact, "Helvetica Neue", Arial, sans-serif' },
+  { n: 'Clean sans', f: 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif' },
+  { n: 'Serif', f: 'Georgia, "Times New Roman", serif' },
+  { n: 'Rounded', f: '"Trebuchet MS", "Segoe UI", Verdana, sans-serif' },
+  { n: 'Handwritten', f: '"Segoe Script", "Bradley Hand", "Comic Sans MS", cursive' },
+  { n: 'Typewriter', f: '"Courier New", Courier, monospace' }
+];
+const RATIOS = [['1:1', 1, 1], ['9:16', 9, 16], ['16:9', 16, 9], ['4:5', 4, 5], ['3:4', 3, 4], ['4:3', 4, 3], ['2:3', 2, 3], ['3:2', 3, 2]];
+
+const S = {
+  W: 1080, H: 1080, ratio: '1:1', bg1: '#12162b', bg2: '#3a2a8a', grad: false,
+  gap: 14, margin: 14, round: 0,
+  layers: [], sel: null, crop: false, lock: true, playing: false, exporting: false, guides: [], k: 1
+};
+const assets = new Map();
+const cv = $('#cv'), cx = cv.getContext('2d');
+const sctx = document.createElement('canvas').getContext('2d');
+
+const isMedia = L => L.type === 'image' || L.type === 'video';
+const getSel = () => S.layers.find(l => l.id === S.sel) || null;
+
+// ---------- toast ----------
+let toastT;
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 4500);
+}
+
+// ---------- text layout ----------
+const fontStr = L => (L.italic ? 'italic ' : '') + (L.bold ? '700' : '400') + ' ' + Math.max(1, L.size) + 'px ' + L.font;
+function layoutText(L) {
+  sctx.font = fontStr(L);
+  const pad = L.boxOn ? L.pad : 0;
+  const maxW = Math.max(10, L.w - 2 * pad);
+  const lines = [];
+  for (const para of String(L.text).split('\n')) {
+    let cur = '';
+    for (const word of para.split(' ')) {
+      const test = cur ? cur + ' ' + word : word;
+      if (!cur || sctx.measureText(test).width <= maxW) {
+        if (!cur && sctx.measureText(word).width > maxW) {
+          let piece = '';
+          for (const ch of word) { if (piece && sctx.measureText(piece + ch).width > maxW) { lines.push(piece); piece = ch; } else piece += ch; }
+          cur = piece;
+        } else cur = test;
+      } else { lines.push(cur); cur = word; }
+    }
+    lines.push(cur);
+  }
+  const lineH = L.size * L.lh;
+  L._h = Math.max(lineH, lines.length * lineH) + 2 * pad;
+  return { lines, lineH, pad, h: L._h };
+}
+const dims = L => L.type === 'text' ? { w: L.w, h: layoutText(L).h } : { w: L.w, h: L.h };
+
+// ---------- drawing ----------
+function rr(c, x, y, w, h, r) {
+  r = clamp(r, 0, Math.min(w, h) / 2);
+  c.beginPath();
+  c.moveTo(x + r, y); c.lineTo(x + w - r, y); c.arcTo(x + w, y, x + w, y + r, r);
+  c.lineTo(x + w, y + h - r); c.arcTo(x + w, y + h, x + w - r, y + h, r);
+  c.lineTo(x + r, y + h); c.arcTo(x, y + h, x, y + h - r, r);
+  c.lineTo(x, y + r); c.arcTo(x, y, x + r, y, r); c.closePath();
+}
+function mediaReady(a) { return a && (a.kind === 'image' || (a.el.readyState >= 2 && a.el.videoWidth > 0)); }
+function drawMedia(c, L, o) {
+  o = o || {};
+  const a = assets.get(L.asset); if (!a) return;
+  const w = L.w, h = L.h, r = Math.min(w, h) / 2 * L.rp;
+  c.save();
+  c.translate(L.x, L.y); c.rotate(rad(L.rot));
+  c.globalAlpha *= L.opacity;
+  if (!o.free) {
+    if (L.shadow) {
+      c.save(); c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = Math.min(S.W, S.H) * .035; c.shadowOffsetY = Math.min(S.W, S.H) * .01;
+      c.fillStyle = '#000'; rr(c, -w / 2, -h / 2, w, h, r); c.fill(); c.restore();
+    }
+    rr(c, -w / 2, -h / 2, w, h, r); c.clip();
+  }
+  if (mediaReady(a)) {
+    const base = L.fit === 'cover' ? Math.max(w / a.w, h / a.h) : Math.min(w / a.w, h / a.h);
+    const s = base * L.zoom, dw = a.w * s, dh = a.h * s;
+    const mx = Math.max(0, (dw - w) / 2), my = Math.max(0, (dh - h) / 2);
+    c.save();
+    if (L.flip) c.scale(-1, 1);
+    c.drawImage(a.el, -L.px * mx - dw / 2, -L.py * my - dh / 2, dw, dh);
+    c.restore();
+  } else { c.fillStyle = '#20253f'; c.fillRect(-w / 2, -h / 2, w, h); }
+  if (!o.free && L.bw > 0) {
+    c.lineWidth = L.bw; c.strokeStyle = L.bc;
+    rr(c, -w / 2 + L.bw / 2, -h / 2 + L.bw / 2, w - L.bw, h - L.bw, Math.max(0, r - L.bw / 2)); c.stroke();
+  }
+  c.restore();
+}
+function drawText(c, L) {
+  const t = layoutText(L), w = L.w, h = t.h;
+  c.save();
+  c.translate(L.x, L.y); c.rotate(rad(L.rot));
+  c.globalAlpha *= L.opacity;
+  if (L.boxOn) { c.fillStyle = L.boxColor; rr(c, -w / 2, -h / 2, w, h, L.rp * Math.min(w, h) / 2); c.fill(); }
+  c.font = fontStr(L); c.textBaseline = 'middle'; c.textAlign = L.align; c.lineJoin = 'round';
+  const tx = L.align === 'left' ? -w / 2 + t.pad : L.align === 'right' ? w / 2 - t.pad : 0;
+  t.lines.forEach((ln, i) => {
+    const ty = -h / 2 + t.pad + t.lineH * (i + .5);
+    if (L.shadow) { c.shadowColor = 'rgba(0,0,0,.6)'; c.shadowBlur = L.size * .12; c.shadowOffsetY = L.size * .045; }
+    if (L.sw > 0) { c.strokeStyle = L.sc; c.lineWidth = L.sw * 2; c.strokeText(ln, tx, ty); c.shadowColor = 'transparent'; }
+    c.fillStyle = L.color; c.fillText(ln, tx, ty);
+    c.shadowColor = 'transparent';
+  });
+  c.restore();
+}
+function drawLayer(c, L) { if (L.hidden) return; if (isMedia(L)) drawMedia(c, L); else drawText(c, L); }
+function paintBg(c, W, H) {
+  if (S.grad) { const g = c.createLinearGradient(0, 0, W, H); g.addColorStop(0, S.bg1); g.addColorStop(1, S.bg2); c.fillStyle = g; }
+  else c.fillStyle = S.bg1;
+  c.fillRect(0, 0, W, H);
+}
+function render(c, W, H, opt) {
+  paintBg(c, W, H);
+  S.layers.forEach(L => drawLayer(c, L));
+  if (opt && opt.ui) drawUI(c);
+}
+
+// ---------- selection overlay ----------
+function handleDefs(L) {
+  const a = [['nw', -1, -1], ['ne', 1, -1], ['se', 1, 1], ['sw', -1, 1]];
+  if (L.type !== 'text') a.push(['n', 0, -1], ['s', 0, 1]);
+  a.push(['e', 1, 0], ['w', -1, 0]);
+  return a;
+}
+function drawUI(c) {
+  const k = S.k = S.W / (cv.clientWidth || S.W);
+  const L = getSel();
+  if (!S.layers.length) {
+    c.save(); c.fillStyle = 'rgba(255,255,255,.55)'; c.font = Math.round(22 * k) + 'px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText('Add photos, videos or text — or drop files here', S.W / 2, S.H / 2); c.restore();
+  }
+  if (L && !L.hidden) {
+    const { w, h } = dims(L);
+    if (S.crop && isMedia(L)) {
+      c.save(); c.globalAlpha = .32; drawMedia(c, L, { free: true }); c.restore();
+      drawMedia(c, L);
+    }
+    c.save(); c.translate(L.x, L.y); c.rotate(rad(L.rot));
+    c.lineWidth = 2 * k; c.strokeStyle = S.crop ? '#ffb21f' : '#6c7bff';
+    if (S.crop) c.setLineDash([8 * k, 6 * k]);
+    c.strokeRect(-w / 2, -h / 2, w, h); c.setLineDash([]);
+    if (!S.crop) {
+      const hs = 6.5 * k;
+      c.fillStyle = '#fff'; c.strokeStyle = '#6c7bff'; c.lineWidth = 1.6 * k;
+      handleDefs(L).forEach(([, dx, dy]) => { c.beginPath(); c.rect(dx * w / 2 - hs, dy * h / 2 - hs, hs * 2, hs * 2); c.fill(); c.stroke(); });
+      c.beginPath(); c.moveTo(0, -h / 2); c.lineTo(0, -h / 2 - 30 * k); c.stroke();
+      c.beginPath(); c.arc(0, -h / 2 - 30 * k, 8 * k, 0, Math.PI * 2); c.fillStyle = '#ff6ca8'; c.fill(); c.strokeStyle = '#fff'; c.stroke();
+    }
+    c.restore();
+    if (S.crop) {
+      c.save(); c.fillStyle = 'rgba(0,0,0,.65)'; const bw = 520 * k, bh = 30 * k;
+      rr(c, S.W / 2 - bw / 2, 10 * k, bw, bh, 8 * k); c.fill();
+      c.fillStyle = '#ffb21f'; c.font = Math.round(14 * k) + 'px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText('Drag to move the picture inside · scroll to zoom · double-click to finish', S.W / 2, 25 * k); c.restore();
+    }
+  }
+  if (S.guides.length) {
+    c.save(); c.strokeStyle = '#ff6ca8'; c.lineWidth = 1.5 * k; c.setLineDash([6 * k, 5 * k]);
+    S.guides.forEach(g => { c.beginPath(); if (g.x != null) { c.moveTo(g.x, 0); c.lineTo(g.x, S.H); } else { c.moveTo(0, g.y); c.lineTo(S.W, g.y); } c.stroke(); });
+    c.restore();
+  }
+}
+
+// ---------- render scheduling ----------
+let raf = 0;
+function frame() {
+  raf = 0;
+  render(cx, S.W, S.H, { ui: true });
+  if (S.playing || S.exporting) raf = requestAnimationFrame(frame);
+}
+function schedule() { if (!raf) raf = requestAnimationFrame(frame); }
+function resizeCanvas() { cv.width = S.W; cv.height = S.H; }
+window.addEventListener('resize', schedule);
+
+// ---------- geometry ----------
+function toDesign(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * S.W / r.width, y: (e.clientY - r.top) * S.H / r.height };
+}
+function toLocal(L, p) {
+  const a = -rad(L.rot), dx = p.x - L.x, dy = p.y - L.y;
+  return { x: dx * Math.cos(a) - dy * Math.sin(a), y: dx * Math.sin(a) + dy * Math.cos(a) };
+}
+function toWorld(L, lx, ly) {
+  const a = rad(L.rot);
+  return { x: L.x + lx * Math.cos(a) - ly * Math.sin(a), y: L.y + lx * Math.sin(a) + ly * Math.cos(a) };
+}
+function hitLayer(L, p, extra) {
+  const { w, h } = dims(L), q = toLocal(L, p), e = extra || 0;
+  return Math.abs(q.x) <= w / 2 + e && Math.abs(q.y) <= h / 2 + e;
+}
+function hitTest(p) {
+  for (let i = S.layers.length - 1; i >= 0; i--) {
+    const L = S.layers[i];
+    if (!L.hidden && hitLayer(L, p, L.type === 'text' ? 6 * S.k : 0)) return L;
+  }
+  return null;
+}
+function hitHandle(L, p) {
+  const { w, h } = dims(L), q = toLocal(L, p), k = S.k;
+  const rr_ = (S.touch ? 22 : 13) * k;
+  if (Math.hypot(q.x, q.y + h / 2 + 30 * k) <= rr_) return { id: 'rot' };
+  for (const [id, dx, dy] of handleDefs(L)) {
+    if (Math.hypot(q.x - dx * w / 2, q.y - dy * h / 2) <= rr_) return { id, dx, dy };
+  }
+  return null;
+}
+const CURSORS = { nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', rot: 'grab' };
+
+// ---------- pointer interaction ----------
+let drag = null;
+cv.addEventListener('pointerdown', e => {
+  if (e.button > 0) return;
+  commit();
+  S.touch = e.pointerType === 'touch';
+  S.k = S.W / (cv.clientWidth || S.W);
+  const p = toDesign(e), L = getSel();
+  if (S.crop && L && isMedia(L)) {
+    if (hitLayer(L, p)) { drag = { mode: 'pan', L, p0: p, px0: L.px, py0: L.py }; cv.setPointerCapture(e.pointerId); return; }
+    S.crop = false;
+  }
+  if (L && !L.hidden) {
+    const h = hitHandle(L, p);
+    if (h) {
+      if (h.id === 'rot') drag = { mode: 'rotate', L };
+      else {
+        const { w, h: hh } = dims(L);
+        drag = { mode: 'resize', L, h, w0: w, h0: hh, rot0: L.rot, size0: L.size, pad0: L.pad, sw0: L.sw, anchor: toWorld(L, -h.dx * w / 2, -h.dy * hh / 2) };
+      }
+      cv.setPointerCapture(e.pointerId); return;
+    }
+  }
+  const hit = hitTest(p);
+  if (hit) {
+    select(hit.id);
+    drag = { mode: 'move', L: hit, p0: p, x0: hit.x, y0: hit.y, moved: false };
+    cv.setPointerCapture(e.pointerId);
+  } else select(null);
+});
+function snapAxis(cands, targets, thr) {
+  let best = null;
+  for (const c of cands) for (const t of targets) {
+    const d = t.v - c;
+    if (Math.abs(d) <= thr && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, g: t.v };
+  }
+  return best;
+}
+cv.addEventListener('pointermove', e => {
+  const p = toDesign(e);
+  if (!drag) {
+    const L = getSel();
+    let cur = 'default';
+    if (L && !L.hidden) {
+      if (S.crop && isMedia(L)) cur = hitLayer(L, p) ? 'grab' : 'default';
+      else { const h = hitHandle(L, p); cur = h ? CURSORS[h.id] : (hitLayer(L, p) ? 'move' : (hitTest(p) ? 'move' : 'default')); }
+    } else if (hitTest(p)) cur = 'move';
+    cv.style.cursor = cur;
+    return;
+  }
+  const d = drag, L = d.L;
+  if (d.mode === 'move') {
+    let nx = d.x0 + (p.x - d.p0.x), ny = d.y0 + (p.y - d.p0.y);
+    if (Math.hypot(p.x - d.p0.x, p.y - d.p0.y) > 2 * S.k) d.moved = true;
+    S.guides = [];
+    if (!e.altKey) {
+      const { w, h } = dims(L), a = rad(L.rot);
+      const ex = Math.abs(w / 2 * Math.cos(a)) + Math.abs(h / 2 * Math.sin(a));
+      const ey = Math.abs(w / 2 * Math.sin(a)) + Math.abs(h / 2 * Math.cos(a));
+      const tx = [{ v: 0 }, { v: S.W / 2 }, { v: S.W }], ty = [{ v: 0 }, { v: S.H / 2 }, { v: S.H }];
+      S.layers.forEach(o => {
+        if (o === L || o.hidden) return;
+        const dd = dims(o), b = rad(o.rot);
+        const ox = Math.abs(dd.w / 2 * Math.cos(b)) + Math.abs(dd.h / 2 * Math.sin(b));
+        const oy = Math.abs(dd.w / 2 * Math.sin(b)) + Math.abs(dd.h / 2 * Math.cos(b));
+        tx.push({ v: o.x - ox }, { v: o.x }, { v: o.x + ox }); ty.push({ v: o.y - oy }, { v: o.y }, { v: o.y + oy });
+      });
+      const thr = 8 * S.k;
+      const sx = snapAxis([nx - ex, nx, nx + ex], tx, thr), sy = snapAxis([ny - ey, ny, ny + ey], ty, thr);
+      if (sx) { nx += sx.d; S.guides.push({ x: sx.g }); }
+      if (sy) { ny += sy.d; S.guides.push({ y: sy.g }); }
+    }
+    L.x = nx; L.y = ny; L.touched = true;
+  } else if (d.mode === 'resize') {
+    const h = d.h, r = rad(d.rot0), c = Math.cos(r), s = Math.sin(r), ax = d.anchor.x, ay = d.anchor.y;
+    const vx = (p.x - ax) * c + (p.y - ay) * s, vy = -(p.x - ax) * s + (p.y - ay) * c;
+    let nw = h.dx ? Math.max(h.dx * vx, 12) : d.w0, nh = h.dy ? Math.max(h.dy * vy, 12) : d.h0;
+    if (L.type === 'text') {
+      if (h.dx && h.dy) {
+        const sc = clamp(nw / d.w0, .05, 30); nw = d.w0 * sc; nh = d.h0 * sc;
+        L.size = d.size0 * sc; L.w = nw; L.pad = d.pad0 * sc; L.sw = d.sw0 * sc;
+      } else { nw = Math.max(nw, 30); L.w = nw; }
+    } else {
+      if (h.dx && h.dy && (S.lock !== e.shiftKey)) { const sc = Math.max(nw / d.w0, nh / d.h0); nw = d.w0 * sc; nh = d.h0 * sc; }
+      L.w = nw; L.h = nh;
+    }
+    const ox = h.dx * nw / 2, oy = h.dy * nh / 2;
+    L.x = ax + ox * c - oy * s; L.y = ay + ox * s + oy * c; L.touched = true;
+  } else if (d.mode === 'rotate') {
+    let a = Math.atan2(p.y - L.y, p.x - L.x) * 180 / Math.PI + 90;
+    a = ((a + 540) % 360) - 180;
+    const near = Math.round(a / 45) * 45;
+    if (e.shiftKey || Math.abs(a - near) < 3.5) a = near;
+    L.rot = Math.round(a * 10) / 10; L.touched = true;
+  } else if (d.mode === 'pan') {
+    const a = rad(-L.rot), dx = p.x - d.p0.x, dy = p.y - d.p0.y;
+    let lx = dx * Math.cos(a) - dy * Math.sin(a), ly = dx * Math.sin(a) + dy * Math.cos(a);
+    if (L.flip) lx = -lx;
+    const as = assets.get(L.asset);
+    const base = L.fit === 'cover' ? Math.max(L.w / as.w, L.h / as.h) : Math.min(L.w / as.w, L.h / as.h);
+    const dw = as.w * base * L.zoom, dh = as.h * base * L.zoom;
+    const mx = Math.max(0, (dw - L.w) / 2), my = Math.max(0, (dh - L.h) / 2);
+    if (mx > 0) L.px = clamp(d.px0 - lx / mx, -1, 1);
+    if (my > 0) L.py = clamp(d.py0 - ly / my, -1, 1);
+    L.touched = true;
+  }
+  refreshPanel(); schedule();
+});
+function endDrag() {
+  if (!drag) return;
+  drag = null; S.guides = [];
+  changed(); schedule();
+}
+cv.addEventListener('pointerup', endDrag);
+cv.addEventListener('pointercancel', endDrag);
+cv.addEventListener('dblclick', e => {
+  const p = toDesign(e), L = getSel();
+  if (S.crop) { S.crop = false; schedule(); return; }
+  const hit = hitTest(p);
+  if (!hit) return;
+  select(hit.id);
+  if (isMedia(hit)) { S.crop = true; schedule(); }
+  else { $('#secItem').open = true; const ta = $('#itemBox textarea'); if (ta) { ta.focus(); ta.select(); } }
+});
+cv.addEventListener('wheel', e => {
+  const L = getSel();
+  if (!S.crop || !L || !isMedia(L)) return;
+  e.preventDefault();
+  L.zoom = clamp(L.zoom * (e.deltaY < 0 ? 1.06 : 1 / 1.06), L.fit === 'cover' ? 1 : .3, 6);
+  L.touched = true; refreshPanel(); changed(); schedule();
+}, { passive: false });
+
+// ---------- keyboard ----------
+document.addEventListener('keydown', e => {
+  const t = e.target, tag = t.tagName;
+  const typing = tag === 'TEXTAREA' || tag === 'SELECT' || (tag === 'INPUT' && ['text', 'number', 'search', ''].includes(t.type || ''));
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && !e.altKey && !typing) {
+    const k = e.key.toLowerCase();
+    if (k === 'z') { e.preventDefault(); undoStep(e.shiftKey ? 1 : -1); return; }
+    if (k === 'y') { e.preventDefault(); undoStep(1); return; }
+    if (k === 'd') { e.preventDefault(); duplicateLayer(S.sel); return; }
+  }
+  if (typing) return;
+  if (e.key === 'Escape') { if (S.crop) { S.crop = false; } else select(null); schedule(); return; }
+  const L = getSel(); if (!L) return;
+  const step = e.shiftKey ? 20 : 2;
+  if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteLayer(L.id); }
+  else if (e.key.startsWith('Arrow')) {
+    e.preventDefault();
+    if (e.key === 'ArrowLeft') L.x -= step; if (e.key === 'ArrowRight') L.x += step;
+    if (e.key === 'ArrowUp') L.y -= step; if (e.key === 'ArrowDown') L.y += step;
+    L.touched = true; refreshPanel(); changed(); schedule();
+  }
+});
+
+// ---------- undo / redo ----------
+const U = { stack: [], idx: -1, timer: 0 };
+const snap = () => JSON.stringify({ W: S.W, H: S.H, ratio: S.ratio, bg1: S.bg1, bg2: S.bg2, grad: S.grad, gap: S.gap, margin: S.margin, round: S.round, layers: S.layers }, (k, v) => k[0] === '_' ? undefined : v);
+function changed() { applyAudio(); clearTimeout(U.timer); U.timer = setTimeout(commit, 300); }
+function commit() {
+  clearTimeout(U.timer);
+  const s = snap();
+  if (s !== U.stack[U.idx]) {
+    U.stack.length = U.idx + 1; U.stack.push(s);
+    if (U.stack.length > 100) U.stack.shift();
+    U.idx = U.stack.length - 1;
+  }
+  refreshUndoBtns();
+}
+function commitNow() { applyAudio(); commit(); }
+function undoStep(dir) {
+  commit();
+  const j = U.idx + dir;
+  if (j < 0 || j >= U.stack.length) return;
+  U.idx = j;
+  const o = JSON.parse(U.stack[j]);
+  ['W', 'H', 'ratio', 'bg1', 'bg2', 'grad', 'gap', 'margin', 'round'].forEach(k => S[k] = o[k]);
+  S.layers = o.layers; S.crop = false;
+  if (!S.layers.some(l => l.id === S.sel)) S.sel = null;
+  resizeCanvas(); buildAll(); applyAudio(); schedule(); refreshUndoBtns();
+}
+function refreshUndoBtns() { $('#undo').disabled = U.idx <= 0; $('#redo').disabled = U.idx >= U.stack.length - 1; }
+
+// ---------- layers ----------
+function select(id) {
+  if (S.sel === id) return;
+  S.sel = id; S.crop = false;
+  buildItem(); buildLayers(); schedule();
+  if (id) $('#secItem').open = true;
+}
+function mkMedia(a) {
+  return { id: uid(), type: a.kind, asset: a.id, name: a.name, x: 0, y: 0, w: 100, h: 100, rot: 0, flip: false, opacity: 1, fit: 'cover', zoom: 1, px: 0, py: 0, rp: S.round, bw: 0, bc: '#ffffff', shadow: false, hidden: false, sound: false, vol: 1, touched: false };
+}
+function mkText() {
+  return { id: uid(), type: 'text', name: 'Text', text: 'Your text', font: FONTS[0].f, size: Math.round(Math.min(S.W, S.H) * .1), color: '#ffffff', bold: false, italic: false, align: 'center', lh: 1.15, sw: 0, sc: '#000000', shadow: true, boxOn: false, boxColor: '#000000', pad: 24, rp: .2, opacity: 1, x: S.W / 2, y: S.H / 2, w: Math.round(S.W * .7), rot: 0, hidden: false, touched: true };
+}
+function layerName(L) { return L.type === 'text' ? ((L.text || '').split('\n')[0].trim() || 'Text').slice(0, 40) : L.name; }
+function deleteLayer(id) {
+  commit();
+  S.layers = S.layers.filter(l => l.id !== id);
+  if (S.sel === id) { S.sel = null; S.crop = false; }
+  buildAll(); commitNow(); schedule();
+}
+function duplicateLayer(id) {
+  const L = S.layers.find(l => l.id === id); if (!L) return;
+  commit();
+  const c = JSON.parse(JSON.stringify(L, (k, v) => k[0] === '_' ? undefined : v));
+  c.id = uid(); c.x += 30; c.y += 30; c.touched = true;
+  S.layers.splice(S.layers.indexOf(L) + 1, 0, c);
+  S.sel = c.id; buildAll(); commitNow(); schedule();
+}
+function moveLayer(id, to) { // to: 'up' | 'down' | 'front' | 'back'
+  const i = S.layers.findIndex(l => l.id === id); if (i < 0) return;
+  commit();
+  const [L] = S.layers.splice(i, 1);
+  const j = to === 'front' ? S.layers.length : to === 'back' ? 0 : to === 'up' ? Math.min(i + 1, S.layers.length) : Math.max(i - 1, 0);
+  S.layers.splice(j, 0, L);
+  buildLayers(); commitNow(); schedule();
+}
+
+// ---------- media loading ----------
+let ac = null, master = null, recDest = null;
+function getAC() {
+  if (ac) return ac;
+  const C = window.AudioContext || window.webkitAudioContext;
+  if (!C) return null;
+  try { ac = new C(); master = ac.createGain(); master.connect(ac.destination); recDest = ac.createMediaStreamDestination(); } catch (e) { ac = null; }
+  return ac;
+}
+function wireAudio(a) {
+  const c = getAC(); if (!c) return;
+  try {
+    const src = c.createMediaElementSource(a.el), g = c.createGain();
+    g.gain.value = 0; src.connect(g); g.connect(master); g.connect(recDest); a.gain = g;
+  } catch (e) { a.gain = null; }
+}
+function applyAudio() {
+  const want = new Map();
+  S.layers.forEach(L => { if (L.type === 'video' && !L.hidden) want.set(L.asset, Math.max(want.get(L.asset) || 0, L.sound ? L.vol : 0)); });
+  assets.forEach(a => {
+    if (a.kind !== 'video') return;
+    const v = want.get(a.id) || 0;
+    if (a.gain) a.gain.gain.value = v; else { a.el.muted = v === 0; a.el.volume = v; }
+  });
+}
+document.addEventListener('pointerdown', () => { if (ac && ac.state !== 'running') ac.resume(); }, true);
+
+async function loadImageFile(file) {
+  const url = URL.createObjectURL(file);
+  const img = new Image(); img.src = url;
+  await img.decode();
+  let el_ = img, w = img.naturalWidth, h = img.naturalHeight;
+  const m = Math.max(w, h);
+  if (m > 2600) {
+    const s = 2600 / m, c = document.createElement('canvas');
+    c.width = Math.round(w * s); c.height = Math.round(h * s);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    el_ = c; w = c.width; h = c.height;
+  }
+  return { id: uid(), kind: 'image', el: el_, w, h, name: file.name.replace(/\.[^.]+$/, ''), url };
+}
+function loadVideoFile(file) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.src = url; v.loop = true; v.playsInline = true; v.preload = 'auto';
+    v.setAttribute('playsinline', '');
+    const to = setTimeout(() => rej(new Error('timeout')), 15000);
+    v.onerror = () => { clearTimeout(to); rej(new Error('unsupported')); };
+    v.onloadeddata = () => {
+      clearTimeout(to);
+      if (!v.videoWidth) return rej(new Error('no picture'));
+      const a = { id: uid(), kind: 'video', el: v, w: v.videoWidth, h: v.videoHeight, dur: v.duration || 0, name: file.name.replace(/\.[^.]+$/, ''), url, gain: null };
+      wireAudio(a);
+      v.onseeked = () => schedule();
+      try { v.currentTime = Math.min(.1, (v.duration || 1) / 2); } catch (e) {}
+      res(a);
+    };
+  });
+}
+async function addFiles(files) {
+  const list = [...files];
+  const made = [];
+  for (const f of list) {
+    try {
+      let a;
+      if (f.type.startsWith('image/')) a = await loadImageFile(f);
+      else if (f.type.startsWith('video/') || /\.(mp4|mov|m4v|webm|mkv)$/i.test(f.name)) a = await loadVideoFile(f);
+      else { toast('Skipped "' + f.name + '" because it is not a photo or video.'); continue; }
+      assets.set(a.id, a); made.push(mkMedia(a));
+    } catch (e) {
+      toast('This browser could not open "' + f.name + '". Photos in HEIC format and some phone videos (HEVC) may need converting to JPG or MP4 first.');
+    }
+  }
+  if (!made.length) return;
+  commit();
+  const fresh = S.layers.filter(isMedia).every(l => !l.touched);
+  const edge = Math.min(S.W, S.H);
+  made.forEach((L, i) => {
+    const a = assets.get(L.asset), ar = a.w / a.h;
+    let w = edge * .5, h = w / ar;
+    if (h > S.H * .8) { h = S.H * .8; w = h * ar; }
+    L.w = w; L.h = h; L.x = S.W / 2 + (i % 5) * 28; L.y = S.H / 2 + (i % 5) * 28;
+    S.layers.push(L);
+  });
+  S.sel = made[made.length - 1].id;
+  if (fresh) autoArrange(true);
+  syncVideoLen();
+  buildAll(); commitNow(); schedule();
+}
+
+// ---------- auto arrange ----------
+function treemap(r, n) {
+  if (n === 1) return [r];
+  const k = clamp(Math.round(n * (.35 + Math.random() * .3)), 1, n - 1);
+  const ratio = clamp(k / n * (.85 + Math.random() * .3), .2, .8);
+  const alongX = r.w / r.h > .8 + Math.random() * .5;
+  if (alongX) {
+    const w1 = r.w * ratio;
+    return [...treemap({ x: r.x, y: r.y, w: w1, h: r.h }, k), ...treemap({ x: r.x + w1, y: r.y, w: r.w - w1, h: r.h }, n - k)];
+  }
+  const h1 = r.h * ratio;
+  return [...treemap({ x: r.x, y: r.y, w: r.w, h: h1 }, k), ...treemap({ x: r.x, y: r.y + h1, w: r.w, h: r.h - h1 }, n - k)];
+}
+function shuffled(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function autoArrange(quiet) {
+  const M = S.layers.filter(isMedia);
+  if (!M.length) { if (!quiet) toast('Add some photos or videos first.'); return; }
+  if (!quiet) commit();
+  const g = S.gap, m = S.margin;
+  const area = { x: m - g / 2, y: m - g / 2, w: S.W - 2 * m + g, h: S.H - 2 * m + g };
+  const tries = [];
+  for (let t = 0; t < 30; t++) {
+    const rects = treemap(area, M.length), order = shuffled(M);
+    let score = 0;
+    order.forEach((L, i) => { const a = assets.get(L.asset); score += Math.abs(Math.log((rects[i].w / rects[i].h) / (a.w / a.h))); });
+    tries.push({ score, rects, order });
+  }
+  tries.sort((a, b) => a.score - b.score);
+  const pick = tries[Math.floor(Math.random() * Math.min(5, tries.length))];
+  pick.order.forEach((L, i) => {
+    const r = pick.rects[i];
+    L.x = r.x + r.w / 2; L.y = r.y + r.h / 2; L.w = Math.max(20, r.w - g); L.h = Math.max(20, r.h - g);
+    L.rot = 0; L.zoom = 1; L.px = 0; L.py = 0; L.fit = 'cover'; L.touched = false;
+  });
+  if (!quiet) { buildItem(); commitNow(); schedule(); }
+}
+
+// ---------- canvas size ----------
+function setRatio(rw, rh, key) {
+  let W, H;
+  if (rw >= rh) { H = 1080; W = Math.round(1080 * rw / rh); } else { W = 1080; H = Math.round(1080 * rh / rw); }
+  W = Math.min(W, 3200); H = Math.min(H, 3200);
+  commit();
+  const sx = W / S.W, sy = H / S.H, s = Math.min(sx, sy);
+  S.layers.forEach(L => {
+    L.x *= sx; L.y *= sy; L.w *= s;
+    if (L.type === 'text') { L.size *= s; L.pad *= s; L.sw *= s; } else L.h *= s;
+  });
+  S.W = W; S.H = H; S.ratio = key; S.crop = false;
+  resizeCanvas(); buildCanvas(); refreshPanel(); commitNow(); schedule();
+}
+
+// ---------- panels ----------
+let irefs = [], crefs = [], refs = irefs;
+function refreshPanel() { irefs.forEach(f => f()); crefs.forEach(f => f()); }
+const f2 = v => String(Math.round(v * 100) / 100);
+function edited() { const L = getSel(); if (L) L.touched = true; changed(); schedule(); }
+
+function addSlider(parent, label, get, set, o, mark) {
+  const fmt = o.fmt || f2;
+  const out = el('b', {}, fmt(get()));
+  const inp = el('input', { type: 'range', min: o.min, max: o.max, step: o.step || 1 });
+  inp.value = get();
+  inp.addEventListener('input', () => { const v = parseFloat(inp.value); set(v); out.textContent = fmt(v); if (mark !== false) edited(); else { changed(); schedule(); } });
+  refs.push(() => { if (document.activeElement !== inp) { inp.value = get(); out.textContent = fmt(get()); } });
+  parent.append(el('div', { class: 'f' }, el('label', {}, label, out), inp));
+}
+function addNum(label, get, set, o) {
+  const inp = el('input', { type: 'number', step: (o && o.step) || 1 });
+  inp.value = Math.round(get());
+  inp.addEventListener('change', () => { const v = parseFloat(inp.value); if (!isNaN(v)) { set(v); edited(); } });
+  refs.push(() => { if (document.activeElement !== inp) inp.value = Math.round(get()); });
+  return el('div', { class: 'f' }, el('label', {}, label), inp);
+}
+function addColor(parent, label, get, set, mark) {
+  const inp = el('input', { type: 'color' }); inp.value = get();
+  inp.addEventListener('input', () => { set(inp.value); if (mark === false) { changed(); schedule(); } else edited(); });
+  refs.push(() => { inp.value = get(); });
+  parent.append(el('div', { class: 'f colr' }, el('label', {}, label), inp));
+}
+function addCheck(parent, label, get, set, rebuild, mark) {
+  const inp = el('input', { type: 'checkbox' }); inp.checked = !!get();
+  inp.addEventListener('change', () => { set(inp.checked); if (mark === false) { changed(); schedule(); } else edited(); if (rebuild) rebuild(); });
+  parent.append(el('div', { class: 'f chk' }, inp, el('label', {}, label)));
+}
+function addSelect(parent, label, opts, get, set, rebuild) {
+  const sel = el('select', {}, opts.map(([v, t]) => el('option', { value: v }, t)));
+  sel.value = get();
+  sel.addEventListener('change', () => { set(sel.value); edited(); if (rebuild) rebuild(); });
+  parent.append(el('div', { class: 'f' }, el('label', {}, label), sel));
+}
+
+function buildCanvas() {
+  const box = $('#canvasBox'); box.innerHTML = '';
+  crefs = []; refs = crefs;
+  const rat = el('div', { class: 'ratios' });
+  RATIOS.forEach(([k, w, h]) => rat.append(el('button', { class: S.ratio === k ? 'on' : '', onclick: () => setRatio(w, h, k) }, k)));
+  box.append(rat);
+  const cw = el('input', { type: 'number', min: 1, max: 99, value: 3 }), ch = el('input', { type: 'number', min: 1, max: 99, value: 2 });
+  box.append(el('div', { class: 'f btns' },
+    el('span', { class: 'inl' }, 'Custom ratio', cw, ':', ch),
+    el('button', { class: 'sm', onclick: () => { const w = +cw.value, h = +ch.value; if (w > 0 && h > 0) setRatio(w, h, 'custom'); } }, 'Apply')));
+  box.lastChild.querySelectorAll('input').forEach(i => { i.style.cssText = 'width:52px;font:inherit;color:inherit;background:#232846;border:1px solid var(--line);border-radius:8px;padding:5px'; });
+  box.append(el('div', { class: 'f', style: 'margin-top:-4px' }, 'Canvas is ' + S.W + ' × ' + S.H + ' px.'));
+  addColor(box, 'Background colour', () => S.bg1, v => { S.bg1 = v; }, false);
+  addCheck(box, 'Blend into a second colour', () => S.grad, v => { S.grad = v; }, null, false);
+  addColor(box, 'Second colour', () => S.bg2, v => { S.bg2 = v; }, false);
+  box.append(el('div', { class: 'hd', style: 'height:6px' }));
+  addSlider(box, 'Gap between pictures', () => S.gap, v => { S.gap = v; }, { min: 0, max: 80 }, false);
+  addSlider(box, 'Outer margin', () => S.margin, v => { S.margin = v; }, { min: 0, max: 120 }, false);
+  addSlider(box, 'Rounded corners (all pictures)', () => S.round, v => { S.round = v; S.layers.forEach(L => { if (isMedia(L)) L.rp = v; }); }, { min: 0, max: 1, step: .01, fmt: v => Math.round(v * 100) + '%' }, false);
+  box.append(el('div', { class: 'f btns' }, el('button', { onclick: () => autoArrange() }, '↻ Auto-arrange with these settings')));
+}
+
+function buildLayers() {
+  const box = $('#layerBox'); box.innerHTML = '';
+  if (!S.layers.length) { box.append(el('div', { class: 'empty' }, 'Nothing yet. Use ＋ Photos, ＋ Videos or ＋ Text.')); return; }
+  [...S.layers].reverse().forEach(L => {
+    const ic = L.type === 'text' ? 'T' : L.type === 'video' ? '🎬' : '🖼';
+    box.append(el('div', { class: 'lrow' + (L.id === S.sel ? ' on' : '') + (L.hidden ? ' hid' : '') },
+      el('span', { class: 'ic' }, ic),
+      el('span', { class: 'nm', title: layerName(L), onclick: () => select(L.id) }, layerName(L)),
+      el('button', { class: 'sm', title: 'Bring forward', onclick: () => moveLayer(L.id, 'up') }, '▲'),
+      el('button', { class: 'sm', title: 'Send backward', onclick: () => moveLayer(L.id, 'down') }, '▼'),
+      el('button', { class: 'sm', title: 'Show or hide', onclick: () => { L.hidden = !L.hidden; buildLayers(); changed(); schedule(); } }, L.hidden ? 'Show' : 'Hide'),
+      el('button', { class: 'sm danger', title: 'Delete', onclick: () => deleteLayer(L.id) }, '✕')));
+  });
+}
+
+function buildItem() {
+  const box = $('#itemBox'); box.innerHTML = '';
+  irefs = []; refs = irefs;
+  const L = getSel();
+  if (!L) { box.append(el('div', { class: 'empty' }, 'Click anything on the canvas to edit it. Drag to move it, use the white squares to resize and the pink dot to rotate.')); return; }
+  const nameB = el('b', { style: 'color:var(--text)' }, layerName(L));
+  box.append(el('div', { class: 'f' }, nameB, ' · ' + (L.type === 'text' ? 'text' : L.type === 'video' ? 'video' : 'photo')));
+  refs.push(() => { nameB.textContent = layerName(L); });
+
+  if (L.type === 'text') {
+    const ta = el('textarea', { rows: 3 }); ta.value = L.text;
+    ta.addEventListener('input', () => { L.text = ta.value; edited(); refreshPanel(); buildLayers(); });
+    box.append(el('div', { class: 'f' }, el('label', {}, 'Text'), ta));
+    addSelect(box, 'Font', FONTS.map(f => [f.f, f.n]), () => L.font, v => { L.font = v; });
+    addSlider(box, 'Size', () => L.size, v => { L.size = v; }, { min: 10, max: 500, fmt: v => Math.round(v) });
+    box.append(el('div', { class: 'f btns' },
+      el('button', { class: 'sm' + (L.bold ? ' on' : ''), onclick: e => { L.bold = !L.bold; e.target.classList.toggle('on', L.bold); edited(); } }, 'Bold'),
+      el('button', { class: 'sm' + (L.italic ? ' on' : ''), onclick: e => { L.italic = !L.italic; e.target.classList.toggle('on', L.italic); edited(); } }, 'Italic'),
+      ...['left', 'center', 'right'].map(a => el('button', { class: 'sm' + (L.align === a ? ' on' : ''), onclick: e => { L.align = a; [...e.target.parentNode.querySelectorAll('[data-a]')].forEach(b => b.classList.toggle('on', b.dataset.a === a)); edited(); }, 'data-a': a }, a[0].toUpperCase() + a.slice(1)))));
+    addColor(box, 'Text colour', () => L.color, v => { L.color = v; });
+    addSlider(box, 'Line spacing', () => L.lh, v => { L.lh = v; }, { min: .8, max: 2, step: .05 });
+    addSlider(box, 'Outline', () => L.sw, v => { L.sw = v; }, { min: 0, max: 40, fmt: v => Math.round(v) });
+    addColor(box, 'Outline colour', () => L.sc, v => { L.sc = v; });
+    addCheck(box, 'Soft shadow', () => L.shadow, v => { L.shadow = v; });
+    addCheck(box, 'Background box', () => L.boxOn, v => { L.boxOn = v; }, buildItem);
+    if (L.boxOn) {
+      addColor(box, 'Box colour', () => L.boxColor, v => { L.boxColor = v; });
+      addSlider(box, 'Box padding', () => L.pad, v => { L.pad = v; }, { min: 0, max: 120, fmt: v => Math.round(v) });
+      addSlider(box, 'Box roundness', () => L.rp, v => { L.rp = v; }, { min: 0, max: 1, step: .01, fmt: v => Math.round(v * 100) + '%' });
+    }
+    addSlider(box, 'Opacity', () => L.opacity, v => { L.opacity = v; }, { min: .05, max: 1, step: .01, fmt: v => Math.round(v * 100) + '%' });
+    box.append(el('div', { class: 'g2' }, addNum('X', () => L.x, v => { L.x = v; }), addNum('Y', () => L.y, v => { L.y = v; })));
+    box.append(el('div', { class: 'g2' }, addNum('Width', () => L.w, v => { L.w = Math.max(30, v); }), addNum('Angle', () => L.rot, v => { L.rot = v; })));
+  } else {
+    box.append(el('div', { class: 'f btns' }, el('button', { class: 'sm' + (S.crop ? ' on' : ''), onclick: e => { S.crop = !S.crop; e.target.classList.toggle('on', S.crop); schedule(); } }, '✥ Move picture inside frame')));
+    addSelect(box, 'Fit', [['cover', 'Fill the frame (crops)'], ['contain', 'Show the whole picture']], () => L.fit, v => { L.fit = v; if (v === 'cover') L.zoom = Math.max(1, L.zoom); }, buildItem);
+    addSlider(box, 'Zoom', () => L.zoom, v => { L.zoom = v; }, { min: L.fit === 'cover' ? 1 : .3, max: 6, step: .01, fmt: v => Math.round(v * 100) + '%' });
+    addSlider(box, 'Picture left ⇄ right', () => L.px, v => { L.px = v; }, { min: -1, max: 1, step: .01, fmt: v => Math.round(v * 100) });
+    addSlider(box, 'Picture up ⇅ down', () => L.py, v => { L.py = v; }, { min: -1, max: 1, step: .01, fmt: v => Math.round(v * 100) });
+    box.append(el('div', { class: 'g2' }, addNum('X', () => L.x, v => { L.x = v; }), addNum('Y', () => L.y, v => { L.y = v; })));
+    box.append(el('div', { class: 'g2' }, addNum('Width', () => L.w, v => { L.w = Math.max(12, v); }), addNum('Height', () => L.h, v => { L.h = Math.max(12, v); })));
+    addSlider(box, 'Rotate', () => L.rot, v => { L.rot = v; }, { min: -180, max: 180, step: .5, fmt: v => Math.round(v) + '°' });
+    addSlider(box, 'Rounded corners', () => L.rp, v => { L.rp = v; }, { min: 0, max: 1, step: .01, fmt: v => Math.round(v * 100) + '%' });
+    addSlider(box, 'Border', () => L.bw, v => { L.bw = v; }, { min: 0, max: 40, fmt: v => Math.round(v) });
+    addColor(box, 'Border colour', () => L.bc, v => { L.bc = v; });
+    addSlider(box, 'Opacity', () => L.opacity, v => { L.opacity = v; }, { min: .05, max: 1, step: .01, fmt: v => Math.round(v * 100) + '%' });
+    addCheck(box, 'Drop shadow', () => L.shadow, v => { L.shadow = v; });
+    addCheck(box, 'Flip left ⇄ right', () => L.flip, v => { L.flip = v; });
+    if (L.type === 'video') {
+      addCheck(box, 'Play this video’s sound', () => L.sound, v => { L.sound = v; if (v) { getAC(); if (ac) ac.resume(); } }, buildItem);
+      if (L.sound) addSlider(box, 'Volume', () => L.vol, v => { L.vol = v; }, { min: 0, max: 1, step: .01, fmt: v => Math.round(v * 100) + '%' });
+    }
+  }
+  box.append(el('div', { class: 'f btns' },
+    el('button', { class: 'sm', onclick: () => { L.x = S.W / 2; L.y = S.H / 2; L.touched = true; refreshPanel(); changed(); schedule(); } }, 'Centre'),
+    L.type !== 'text' ? el('button', { class: 'sm', onclick: () => { L.x = S.W / 2; L.y = S.H / 2; L.w = S.W; L.h = S.H; L.rot = 0; L.touched = true; refreshPanel(); changed(); schedule(); } }, 'Fill canvas') : null,
+    el('button', { class: 'sm', onclick: () => moveLayer(L.id, 'front') }, 'To front'),
+    el('button', { class: 'sm', onclick: () => moveLayer(L.id, 'back') }, 'To back'),
+    el('button', { class: 'sm', onclick: () => duplicateLayer(L.id) }, 'Duplicate'),
+    el('button', { class: 'sm danger', onclick: () => deleteLayer(L.id) }, 'Delete')));
+}
+function buildLayersLabelOnly() { buildLayers(); }
+function buildAll() { buildCanvas(); buildLayers(); buildItem(); }
+
+// ---------- playback ----------
+function videoAssets() {
+  const s = new Set();
+  S.layers.forEach(L => { if (L.type === 'video' && !L.hidden) s.add(L.asset); });
+  return [...s].map(id => assets.get(id));
+}
+function setPlaying(on) {
+  S.playing = on;
+  if (on) { getAC(); if (ac) ac.resume(); }
+  assets.forEach(a => { if (a.kind === 'video') { if (on && videoAssets().includes(a)) a.el.play().catch(() => {}); else a.el.pause(); } });
+  $('#play').textContent = on ? '⏸ Pause videos' : '▶ Play videos';
+  schedule();
+}
+$('#play').addEventListener('click', () => {
+  if (!videoAssets().length) { toast('Add a video first.'); return; }
+  setPlaying(!S.playing);
+});
+$('#restart').addEventListener('click', () => { assets.forEach(a => { if (a.kind === 'video') a.el.currentTime = 0; }); schedule(); });
+$('#lock').addEventListener('change', e => { S.lock = e.target.checked; });
+
+function syncVideoLen() {
+  const d = videoAssets().map(a => a.dur || 0);
+  if (d.length) $('#vlen').value = Math.min(600, Math.max(1, Math.ceil(Math.max(...d))));
+}
+
+// ---------- export ----------
+function downloadBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+const stamp = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()); };
+const expScale = () => (parseInt($('#expSize').value, 10) || 1080) / 1080;
+function exportImage(kind) {
+  const sc = expScale(), c = document.createElement('canvas');
+  c.width = Math.round(S.W * sc); c.height = Math.round(S.H * sc);
+  const x = c.getContext('2d'); x.scale(sc, sc);
+  render(x, S.W, S.H, {});
+  c.toBlob(b => downloadBlob(b, 'nkt-collage-' + stamp() + (kind === 'png' ? '.png' : '.jpg')), kind === 'png' ? 'image/png' : 'image/jpeg', .93);
+}
+$('#dlPng').addEventListener('click', () => exportImage('png'));
+$('#dlJpg').addEventListener('click', () => exportImage('jpg'));
+
+function pickMime() {
+  if (!window.MediaRecorder) return '';
+  const c = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=avc1', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+  return c.find(t => MediaRecorder.isTypeSupported(t)) || '';
+}
+function seekWait(v) {
+  return new Promise(res => {
+    if (!v.seeking && v.currentTime === 0) return res();
+    const t = setTimeout(res, 700);
+    v.addEventListener('seeked', () => { clearTimeout(t); res(); }, { once: true });
+  });
+}
+let cancelRec = false;
+async function recordVideo() {
+  if (S.exporting) return;
+  const cvx = document.createElement('canvas');
+  if (!cvx.captureStream || !window.MediaRecorder) { toast('This browser cannot record video. Please use Chrome, Edge or Safari.'); return; }
+  const dur = clamp(parseFloat($('#vlen').value) || 5, 1, 600);
+  const sc = expScale();
+  const W = Math.max(2, Math.round(S.W * sc / 2) * 2), H = Math.max(2, Math.round(S.H * sc / 2) * 2);
+  cvx.width = W; cvx.height = H;
+  const x = cvx.getContext('2d');
+  const mime = pickMime();
+  const stream = cvx.captureStream(30);
+  const vids = videoAssets();
+  const aCtx = getAC();
+  if (aCtx) {
+    await aCtx.resume(); applyAudio();
+    if (vids.some(a => a.gain && a.gain.gain.value > 0)) recDest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+    master.gain.value = 0;
+  }
+  const bps = Math.round(clamp(9e6 * sc * sc, 2.5e6, 9e6));
+  let rec;
+  try { rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: bps } : { videoBitsPerSecond: bps }); }
+  catch (e) { try { rec = new MediaRecorder(stream); } catch (e2) { toast('Could not start recording in this browser.'); if (master) master.gain.value = 1; return; } }
+  const chunks = [];
+  rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  const stopped = new Promise(r => { rec.onstop = r; });
+  S.exporting = true; cancelRec = false;
+  $('#dlVid').disabled = true; $('#vstop').hidden = false;
+  vids.forEach(a => { a.el.pause(); a.el.currentTime = 0; });
+  await Promise.all(vids.map(a => seekWait(a.el)));
+  setPlaying(true);
+  rec.start(250);
+  const t0 = performance.now();
+  await new Promise(done => {
+    const step = () => {
+      const t = (performance.now() - t0) / 1000;
+      x.save(); x.scale(W / S.W, H / S.H); render(x, S.W, S.H, {}); x.restore();
+      $('#vstat').textContent = 'Recording… ' + Math.min(t, dur).toFixed(1) + ' / ' + dur + ' s. Keep this tab open and visible.';
+      if (t >= dur || cancelRec) done(); else requestAnimationFrame(step);
+    };
+    step();
+  });
+  rec.stop(); await stopped;
+  S.exporting = false; setPlaying(false);
+  if (master) master.gain.value = 1;
+  $('#dlVid').disabled = false; $('#vstop').hidden = true;
+  const type = (rec.mimeType || mime || 'video/webm').split(';')[0];
+  const blob = new Blob(chunks, { type });
+  if (!blob.size) { $('#vstat').textContent = 'Recording failed.'; toast('Recording produced no data. Try again.'); return; }
+  const ext = type.includes('mp4') ? 'mp4' : 'webm';
+  downloadBlob(blob, 'nkt-collage-' + stamp() + '.' + ext);
+  $('#vstat').textContent = 'Saved ' + (blob.size / 1048576).toFixed(1) + ' MB ' + ext.toUpperCase() + (cancelRec ? ' (stopped early).' : '.');
+}
+$('#dlVid').addEventListener('click', recordVideo);
+$('#vstop').addEventListener('click', () => { cancelRec = true; });
+
+// ---------- top bar & input wiring ----------
+$('#addPhoto').addEventListener('click', () => $('#fPhoto').click());
+$('#addVideo').addEventListener('click', () => $('#fVideo').click());
+['#fPhoto', '#fVideo'].forEach(s => $(s).addEventListener('change', e => { const f = [...e.target.files]; e.target.value = ''; addFiles(f); }));
+$('#addText').addEventListener('click', () => {
+  commit();
+  const L = mkText(); S.layers.push(L); S.sel = L.id; S.crop = false;
+  buildAll(); commitNow(); schedule(); $('#secItem').open = true;
+  const ta = $('#itemBox textarea'); if (ta) { ta.focus(); ta.select(); }
+});
+$('#arrange').addEventListener('click', () => autoArrange());
+$('#undo').addEventListener('click', () => undoStep(-1));
+$('#redo').addEventListener('click', () => undoStep(1));
+$('#clear').addEventListener('click', () => {
+  if (!S.layers.length) return;
+  commit();
+  S.layers = []; S.sel = null; S.crop = false; setPlaying(false);
+  buildAll(); commitNow(); schedule(); toast('Cleared. Press Undo to bring everything back.');
+});
+let dragN = 0;
+window.addEventListener('dragenter', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { dragN++; document.body.classList.add('dragging'); } });
+window.addEventListener('dragleave', () => { dragN = Math.max(0, dragN - 1); if (!dragN) document.body.classList.remove('dragging'); });
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => { e.preventDefault(); dragN = 0; document.body.classList.remove('dragging'); if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files); });
+window.addEventListener('paste', e => {
+  if (['TEXTAREA', 'INPUT'].includes(e.target.tagName)) return;
+  const files = [...(e.clipboardData ? e.clipboardData.files : [])];
+  if (files.length) addFiles(files);
+});
+window.addEventListener('beforeunload', e => { if (S.layers.length) { e.preventDefault(); e.returnValue = ''; } });
+
+// ---------- start ----------
+$('#vstat').textContent = window.MediaRecorder ? 'Videos save as ' + ((pickMime() || 'video/webm').includes('mp4') ? 'MP4' : 'WebM') + '.' : 'Video recording is not available in this browser.';
+window.__nkt = { S, assets, addFiles, autoArrange, setRatio, undoStep, commit, recordVideo, dims, hitTest, toDesign, select, deleteLayer };
+buildAll(); undoInit(); schedule();
+function undoInit() { U.stack = [snap()]; U.idx = 0; refreshUndoBtns(); }
+})();
+</script>
+</body>
+</html>
