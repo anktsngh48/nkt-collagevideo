@@ -872,7 +872,9 @@ function drawUI(c) {
   const L = getSelV();
   if (!S.layers.length) {
     c.save(); c.fillStyle = 'rgba(255,255,255,.55)'; c.font = Math.round(22 * k) + 'px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.fillText('Add photos, videos or text — or drop files here', S.W / 2, S.H / 2); c.restore();
+    const words = 'Add photos, videos or text — or drop files here'.split(' '), maxW = S.W - 40 * k, lines = []; let cur = '';
+    words.forEach(w => { const t = cur ? cur + ' ' + w : w; if (c.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t; }); lines.push(cur);
+    lines.forEach((ln, i) => c.fillText(ln, S.W / 2, S.H / 2 + (i - (lines.length - 1) / 2) * 22 * k * 1.3)); c.restore();
   }
   if (L && activeAt(L, S.t)) {
     const { w, h } = dims(L);
@@ -913,8 +915,14 @@ function drawUI(c) {
     c.fillRect(0, 0, S.W, z.t); c.fillRect(0, z.b, S.W, S.H - z.b); c.fillRect(0, z.t, z.l, z.b - z.t); c.fillRect(z.r, z.t, S.W - z.r, z.b - z.t);
     c.strokeStyle = 'rgba(255,90,110,.9)'; c.lineWidth = 2 * k; c.setLineDash([10 * k, 7 * k]); c.strokeRect(z.l, z.t, z.r - z.l, z.b - z.t); c.setLineDash([]);
     c.fillStyle = 'rgba(255,255,255,.85)'; c.font = Math.round(13 * k) + 'px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    if (z.tall) { if (z.t > 24 * k) c.fillText('Covered by the Reels top bar', S.W / 2, z.t / 2); if (S.H - z.b > 24 * k) c.fillText('Covered by caption, name and buttons', S.W / 2, (z.b + S.H) / 2); }
-    else if (z.t > 14 * k) c.fillText('Keep important things inside the dashed box', S.W / 2, z.t / 2);
+    const say = (txt, y) => { // wrap onto more lines when the picture is narrow, so the words are never cut off
+      const fs = Math.round(13 * k), maxW = S.W - 24 * k, words = txt.split(' '), lines = []; let cur = '';
+      words.forEach(w => { const t = cur ? cur + ' ' + w : w; if (c.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t; });
+      lines.push(cur);
+      lines.forEach((ln, i) => c.fillText(ln, S.W / 2, y + (i - (lines.length - 1) / 2) * fs * 1.25));
+    };
+    if (z.tall) { if (z.t > 24 * k) say('Covered by the Reels top bar', z.t / 2); if (S.H - z.b > 24 * k) say('Covered by caption, name and buttons', (z.b + S.H) / 2); }
+    else if (z.t > 14 * k) say('Keep important things inside the dashed box', z.t / 2);
     c.restore();
   }
   if (S.guides.length) {
@@ -3258,14 +3266,18 @@ const RULES = [
       const m = l.match(/\b(9|16|1|4|3|2)\s*[:x\/]\s*(16|9|1|5|4|3|2)\b/); if (m) key = m[1] + ':' + m[2];
       if (!key || !RATIO_KEYS[key]) key = /\b(?:reels?|stor(?:y|ies)|shorts?|tiktok|vertical|portrait)\b/.test(l) ? '9:16' : /\bsquare\b/.test(l) ? '1:1' : /\b(?:landscape|widescreen|horizontal|youtube)\b/.test(l) ? '16:9' : null;
       if (!key || !RATIO_KEYS[key]) throw new CmdErr('I know the shapes 9:16, 16:9, 1:1, 4:5, 3:4, 4:3, 2:3 and 3:2.');
+      // "make the video 9:16" changes only that picture's frame; the canvas changes only when you say canvas, Reel, story and so on
+      const sel0 = getSel(), nameMedia = /\b(?:videos?|clips?|photos?|pictures?|images?|pics?|gifs?)\b/.test(l), pron = /\b(?:selected|this|it)\b/.test(l) && sel0 && isMedia(sel0);
+      if ((nameMedia || pron) && !/\b(?:canvas|reels?|stor(?:y|ies)|shorts?|tiktok|project|whole|everything|page|screen)\b/.test(l) && /\d\s*[:x\/]\s*\d/.test(l)) {
+        const ts = pickTargets(s, isMedia), [rw, rh] = RATIO_KEYS[key]; commit();
+        ts.forEach(L => { const ar = rw / rh; let w = L.w, h = w / ar; if (h > L.h) { h = L.h; w = h * ar; } Object.assign(L, { w, h, zoom: 1, px: 0, py: 0, fit: 'cover', touched: true }); });
+        cmdRefresh(1); commitNow(); return 'The ' + typeName(ts[0]) + ' is now ' + key + ' (the canvas is unchanged). Its edges are cropped to fit; say "original size" to undo that, or pick "Show the whole picture" under Fit to keep everything.'; }
       setRatio(RATIO_KEYS[key][0], RATIO_KEYS[key][1], key);
-      const sel = getSel(), media = S.layers.filter(isMedia), mine = sel && isMedia(sel) ? sel : (media.length === 1 ? media[0] : null);
-      if (mine && /\b(?:video|clip|photo|picture|image|selected|this|it)\b/.test(l) && !/\b(?:canvas|whole thing|everything)\b/.test(l)) { commit(); Object.assign(mine, { x: S.W / 2, y: S.H / 2, w: S.W, h: S.H, rot: 0, zoom: 1, px: 0, py: 0, fit: 'cover', touched: true }); cmdRefresh(1); commitNow(); return 'Canvas is now ' + key + ' and the ' + typeName(mine) + ' fills it (the edges may be cropped). To keep all of it, say "fit the video to the canvas".'; }
       return 'Canvas is now ' + key + '.'; } },
   // keep a picture's own shape: "fit the video to the canvas", "original size", "don't crop"
   { t: s => /\b(?:original (?:size|shape|aspect|ratio|proportions)|don'?t crop|no crop|without crop(?:ping)?|whole (?:video|picture|photo|image|clip)|(?:uncrop|un-crop))\b/i.test(s) || (/\bfit\b/i.test(s) && /\b(?:canvas|screen|frame|inside|within|in the)\b/i.test(s)), f: s => {
       const ts = pickTargets(s, isMedia), toCanvas = /\b(?:canvas|screen|whole frame)\b/i.test(s); commit();
-      ts.forEach(L => { const a = assets.get(L.asset), ar = a.w / a.h, bw = toCanvas ? S.W : L.w, bh = toCanvas ? S.H : L.h; let w = bw, h = bw / ar; if (h > bh) { h = bh; w = bh * ar; } Object.assign(L, { w, h, zoom: 1, px: 0, py: 0, fit: 'cover', touched: true }); if (toCanvas) { L.x = S.W / 2; L.y = S.H / 2; } });
+      ts.forEach(L => { const a = assets.get(L.asset), ar = a.w / a.h, bw = toCanvas ? S.W : Math.max(L.w, L.h * ar), bh = toCanvas ? S.H : Math.max(L.h, L.w / ar); let w = bw, h = bw / ar; if (h > bh) { h = bh; w = bh * ar; } if (!toCanvas && (w > S.W || h > S.H)) { const k = Math.min(S.W / w, S.H / h); w *= k; h *= k; } Object.assign(L, { w, h, zoom: 1, px: 0, py: 0, fit: 'cover', touched: true }); if (toCanvas) { L.x = S.W / 2; L.y = S.H / 2; } });
       cmdRefresh(1); commitNow(); return toCanvas ? 'It now fits inside the canvas with nothing cropped.' : 'Back to its original shape, nothing cropped.'; } },
   { t: /\b(?:background|backdrop)\b/i, f: s => {
       const cs = findColours(s), grad = /\bgradient|blend|fade between\b/i.test(s) || cs.length >= 2;
@@ -3575,7 +3587,7 @@ fade in | fade out | fade in and out | slide in from the left | slide out to the
 move from left to right | grow from 50% to 100% | spin once
 black and white | warm look | cool look | vintage look | vivid | dramatic | matte | no filter | brightness 120% | contrast 130% | blur 5 | add a vignette
 volume 40% | volume 30% from 5 to 8 seconds | mute | unmute | louder | loop the music | fade the music in 2 seconds | speed 2x | trim to the first 5 seconds | split at 3 seconds
-make the video 9:16 | fit the video to the canvas | keep its original shape (no crop) | make it a reel | make it square | make it landscape | make the video 20 seconds long | background black | background gradient blue and purple | show safe zones | auto arrange | stagger the items
+make the video 9:16 (changes only the video, not the canvas) | make the canvas 9:16 | fit the video to the canvas | keep its original shape (no crop) | make it a reel | make it square | make it landscape | make the video 20 seconds long | background black | background gradient blue and purple | show safe zones | auto arrange | stagger the items
 find the beats | put the photos on the beat | put the photos on every 2nd beat
 play | pause | go to 3 seconds | undo | export gif | save video | save mp3 | download png
 Refer to items by their kind ("the text", "the photo", "the video", "the music") or by their quoted name, or say "it" for the selected item. If the request cannot be done with these commands, reply with [].`;
@@ -3630,7 +3642,7 @@ async function runCommandText(raw) {
   if (done.length) { CMD.hist.push(raw); CMD.hi = CMD.hist.length; $('#cmdIn').value = ''; }
   return { done, fail };
 }
-const CMD_EXAMPLES = ['Make the text bigger', 'Add text "Summer sale" at the top', 'Make it a Reel', 'Make the video 9:16', 'Fit the video to the canvas', 'Background black', 'Fade in and slide out', 'Black and white', 'Show from 2 to 6 seconds', 'Volume 30% from 5 to 8 seconds', 'Add captions "Hello everyone | Welcome to my reel"', 'Put the photos on the beat', 'Move the photo from left to right', 'Add a red star', 'Export GIF'];
+const CMD_EXAMPLES = ['Make the text bigger', 'Add text "Summer sale" at the top', 'Make it a Reel', 'Make the video 9:16', 'Make the canvas 9:16', 'Fit the video to the canvas', 'Background black', 'Fade in and slide out', 'Black and white', 'Show from 2 to 6 seconds', 'Volume 30% from 5 to 8 seconds', 'Add captions "Hello everyone | Welcome to my reel"', 'Put the photos on the beat', 'Move the photo from left to right', 'Add a red star', 'Export GIF'];
 function openCmdHelp() { const d = $('#cmdHelp'); if (d) d.open = true; }
 function buildCmdBar() {
   const box = $('#cmdBar'); if (!box) return;
