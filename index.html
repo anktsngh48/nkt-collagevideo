@@ -927,10 +927,24 @@ function drawUI(c) {
     }
     c.restore();
     if (S.crop) {
-      c.save(); c.fillStyle = 'rgba(0,0,0,.65)'; const bw = 520 * k, bh = 30 * k;
+      c.save();
+      c.font = Math.round(14 * k) + 'px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      const bm = 8 * k, bp = 10 * k, lh = Math.round(14 * k) * 1.35;
+      const maxTW = Math.max(40 * k, S.W - 2 * bm - 2 * bp);
+      const words = 'Drag to move the picture inside · scroll to zoom · double-click to finish'.split(' ');
+      const lines = []; let cur = '';
+      for (const wd of words) {
+        const t = cur ? cur + ' ' + wd : wd;
+        if (cur && c.measureText(t).width > maxTW) { lines.push(cur); cur = wd; } else cur = t;
+      }
+      if (cur) lines.push(cur);
+      let tw = 0; for (const ln of lines) tw = Math.max(tw, c.measureText(ln).width);
+      const bw = Math.min(tw + 2 * bp, S.W - 2 * bm), bh = lines.length * lh + 12 * k;
+      c.fillStyle = 'rgba(0,0,0,.65)';
       rr(c, S.W / 2 - bw / 2, 10 * k, bw, bh, 8 * k); c.fill();
-      c.fillStyle = '#ffb21f'; c.font = Math.round(14 * k) + 'px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-      c.fillText('Drag to move the picture inside · scroll to zoom · double-click to finish', S.W / 2, 25 * k); c.restore();
+      c.fillStyle = '#ffb21f';
+      lines.forEach((ln, i) => c.fillText(ln, S.W / 2, 10 * k + 6 * k + lh * (i + 0.5)));
+      c.restore();
     }
   }
   if (S.safe) {
