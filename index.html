@@ -31,6 +31,23 @@
   button.danger:hover:not(:disabled) { background: #5a2030; border-color: #8a3048; }
   .layout { display: grid; grid-template-columns: 1fr 360px; gap: 18px; align-items: start; }
   @media (max-width: 920px) { .layout { grid-template-columns: 1fr; } }
+
+  .cmdbar { margin: 0 0 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel, rgba(255,255,255,.04)); }
+  .cmdrow { display: flex; gap: 8px; align-items: center; }
+  .cmdrow > span { font-size: 18px; }
+  .cmdrow input[type=text] { flex: 1; min-width: 0; padding: 9px 10px; font: inherit; font-size: 15px; color: var(--text); background: #232846; border: 1px solid var(--line); border-radius: 8px; }
+  .cmdrow input[type=text]::placeholder { color: #8d94b8; }
+  .cmdhint { margin-top: 6px; font-size: 12px; opacity: .75; line-height: 1.4; }
+  .cmdmsg { margin-top: 6px; font-size: 13px; line-height: 1.4; opacity: .95; }
+  .cmdmsg:empty { display: none; }
+  .cmdmsg.bad { color: #ff8a80; }
+  .cmdhelp { margin-top: 6px; font-size: 13px; }
+  .cmdhelp > summary { cursor: pointer; opacity: .85; }
+  .cmdhelp .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .cmdhelp .chip { padding: 4px 9px; border-radius: 999px; font-size: 12px; }
+  .cmdnote { margin: 8px 0; padding: 8px 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.45; background: rgba(255,255,255,.06); border: 1px solid var(--line); }
+  .cmdhelp .chk { display: flex; gap: 8px; align-items: flex-start; }
+  .cmdhelp .chk input { margin-top: 3px; }
   .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
   .bar.below { margin: 12px 0 0; }
   .spacer { flex: 1; }
@@ -123,7 +140,7 @@
 <body>
 <div class="wrap">
   <h1>NKT Collage Video</h1>
-  <p class="sub">Mix photos, videos, music and text on one canvas. Drag to move, use the corner squares to resize, and download a picture or a video.</br>Everything happens offline, so nothing is uploaded.</p>
+  <p class="sub">Mix photos, videos, music and text on one canvas. Drag to move, use the corner squares to resize, and download a picture or a video.</br>Everything happens offline, so nothing is uploaded. (Only the optional online AI in the ✨ box uses the internet, and only if a sentence needs it.)</p>
 
   <div class="layout">
     <div>
@@ -140,6 +157,12 @@
         <button id="openProj" title="Open a project file saved earlier">📂 Open project</button>
         <button id="fsBtn" title="Fill the whole screen with the editor (press Esc to leave)">⛶ Full screen</button>
         <button id="clear" class="danger" title="Remove everything from the canvas">Clear</button>
+      </div>
+      <div class="cmdbar" id="cmdBar">
+        <div class="cmdrow"><span>✨</span><input id="cmdIn" type="text" placeholder='Type what you want, e.g. "make the text bigger"' autocomplete="off" enterkeyhint="go" aria-label="Type what you want to change"><button class="primary" id="cmdGo">Do it</button></div>
+        <div class="cmdhint">Common commands work <b>offline</b>, free, no sign-in. If a sentence is not understood, a free <b>online AI</b> can try (needs internet; you can turn it off below).</div>
+        <div id="cmdMsg" class="cmdmsg" aria-live="polite"></div>
+        <details class="cmdhelp" id="cmdHelp"><summary>Examples, and does this need internet?</summary><div id="cmdHelpBody"></div></details>
       </div>
       <div class="stage"><canvas id="cv" width="1080" height="1080"></canvas></div>
       <p class="hint">Click an item to select it (click empty space to select nothing) · drag to move · white squares resize · round handle rotates · double-click a photo or video to move the picture inside its frame · arrow keys nudge · Delete removes · Space plays.</p>
@@ -3094,9 +3117,536 @@ window.addEventListener('beforeunload', e => { if (S.layers.length) { e.preventD
   document.querySelectorAll('aside details').forEach(d => { d.open = false; });
 })();
 
+
+// ---------- type a command ----------
+// Common commands are understood by the app itself (works offline). Anything else can be sent to a free online AI,
+// which only turns the sentence into the same short commands, so it can never do more than the app's own commands.
+class CmdErr extends Error {}
+const CMD = { online: true, url: 'https://text.pollinations.ai/', hist: [], hi: 0, busy: false };
+try { const v = localStorage.getItem('nkt-online-helper'); if (v !== null) CMD.online = v === '1'; } catch (e) {}
+const COLOUR_WORDS = { red: '#e53935', 'dark red': '#8b0000', 'light red': '#ff8a80', green: '#2eb85c', 'dark green': '#0b5d2a', 'light green': '#9be28f', blue: '#2f6bff', 'dark blue': '#0b1f6b', 'light blue': '#8fc7ff', 'sky blue': '#4fc3f7', yellow: '#ffe14d', orange: '#ff9800', pink: '#ff6ca8', 'hot pink': '#ff2d8a', purple: '#8e44ff', violet: '#8e44ff', white: '#ffffff', black: '#000000', gray: '#808080', grey: '#808080', 'light gray': '#d0d0d0', 'light grey': '#d0d0d0', 'dark gray': '#404040', 'dark grey': '#404040', cyan: '#19d3e6', teal: '#14a89a', gold: '#ffc83d', brown: '#8b5a2b', navy: '#14206b', maroon: '#800020', lime: '#8ae234', magenta: '#ff2bd6', beige: '#f0e0c0', silver: '#c0c0c0', cream: '#fff6dc', coral: '#ff7f6e', turquoise: '#30d5c8', indigo: '#4b3fb5' };
+const COLOUR_RE = new RegExp('#[0-9a-f]{6}\\b|#[0-9a-f]{3}\\b|\\b(?:' + Object.keys(COLOUR_WORDS).sort((a, b) => b.length - a.length).map(k => k.replace(/ /g, '\\s+')).join('|') + ')\\b', 'gi');
+function findColours(s) {
+  const out = [];
+  for (const m of String(s).matchAll(COLOUR_RE)) {
+    const t = m[0].toLowerCase().replace(/\s+/g, ' ');
+    out.push(t[0] === '#' ? (t.length === 4 ? '#' + t[1] + t[1] + t[2] + t[2] + t[3] + t[3] : t) : COLOUR_WORDS[t]);
+  }
+  return out;
+}
+const NUMV = s => parseFloat(s);
+const SEC = '(?:s|secs?|seconds?)?';
+const typeName = L => L.cap ? 'caption' : L.type === 'image' ? 'photo' : L.type === 'audio' ? 'sound' : L.type;
+const isVisual = L => L.type !== 'audio';
+const hasSound = L => L.type === 'audio' || L.type === 'video';
+async function beatSource() { const l = soundLayers(); if (!l.length) throw new CmdErr('Add some music first, then I can find its beat.'); if (!l.some(x => x.id === SND.src)) SND.src = (l.find(x => x.type === 'audio') || l[0]).id; }
+function cmdFocus() { const p = (CMD.last || []).map(id => S.layers.find(L => L.id === id)).filter(Boolean); return p[0] || getSel(); }
+function cmdRefresh(all) { if (all) buildAll(); else { buildLayers(); buildItem(); } schedule(); }
+// which items does a sentence talk about?
+function pickTargets(seg, accept, what) { const r = pickTargets0(seg, accept, what); CMD.last = r.map(L => L.id); return r; }
+function pickTargets0(seg, accept, what) {
+  accept = accept || (() => true);
+  const low = seg.toLowerCase(), all = /\b(all|every|each|everything|both)\b/.test(low);
+  const quoted = (seg.match(/[a-z]/g) || []).map(q => CMD.quotes[q.charCodeAt(1) - 97]).filter(Boolean);
+  const GENERIC = new Set(['text', 'photo', 'video', 'audio', 'star', 'heart', 'circle', 'sticker', 'your text', 'caption']);
+  // 1. an item named in the sentence (a file name, or a quoted piece of text)
+  const named = S.layers.filter(L => !L.cap && accept(L)).map(L => ({ L, n: (L.type === 'text' ? L.text.split('\n')[0] : L.name || '').trim().toLowerCase() }))
+    .filter(o => o.n.length >= 3 && !GENERIC.has(o.n) && !findColours(o.n).length && !/^\d+$/.test(o.n) && (low.includes(o.n) || (o.L.type === 'text' && quoted.some(q => q.toLowerCase() === o.n))))
+    .sort((a, b) => b.n.length - a.n.length);
+  if (named.length && !all) return [named[0].L];
+  // 2. a kind of item ("the text", "the photos")
+  const groups = [
+    [/\b(?:captions?|subtitles?)\b/, L => L.cap, 'caption'],
+    [/\b(?:stickers?|emoji)\b/, L => L.type === 'text' && L.name === 'Sticker', 'sticker'],
+    [/\b(?:texts?|titles?|headings?|headlines?|words|labels?)\b/, L => L.type === 'text' && !L.cap && L.name !== 'Sticker', 'text'],
+    [/\b(?:photos?|pictures?|images?|pics?|gifs?)\b/, L => L.type === 'image', 'photo'],
+    [/\b(?:videos?|clips?|footage)\b/, L => L.type === 'video', 'video'],
+    [/\b(?:music|audio|sounds?|songs?|tracks?|voice|voice-?over|narration)\b/, L => L.type === 'audio', 'sound'],
+    [/\b(?:shapes?|circles?|stars?|hearts?|arrows?|rectangles?|squares?|triangles?|lines?)\b/, L => L.type === 'shape', 'shape']
+  ];
+  for (const [re, pred, nm] of groups) {
+    if (!re.test(low)) continue;
+    const list = S.layers.filter(L => pred(L) && accept(L));
+    const sel = getSel();
+    if (all) { if (list.length) return list; throw new CmdErr('There is no ' + nm + ' that this applies to.'); }
+    if (sel && pred(sel) && accept(sel)) return [sel];
+    if (list.length) return list;
+    if (S.layers.some(pred)) throw new CmdErr('That does not apply to a ' + nm + '.');
+    throw new CmdErr('There is no ' + nm + ' on the canvas yet.');
+  }
+  if (all) { const list = S.layers.filter(accept); if (list.length) return list; throw new CmdErr('There is nothing this applies to.'); }
+  // 3. the item the previous step of this same sentence changed, else the selected item, or the only item it could be
+  const prev = (CMD.last || []).map(id => S.layers.find(L => L.id === id)).filter(Boolean);
+  if (prev.length && prev.every(accept)) return prev;
+  const sel = getSel();
+  if (sel) { if (accept(sel)) return [sel]; throw new CmdErr('That does not apply to the selected ' + typeName(sel) + '. Select another item first.'); }
+  const cand = S.layers.filter(L => !L.cap && accept(L));
+  if (cand.length === 1) return cand;
+  throw new CmdErr(cand.length ? 'Click the item you mean first, or say which one (for example "make the text bigger").' : 'There is nothing this applies to yet.');
+}
+function scaleLayer(L, f) {
+  if (L.type === 'text') { L.size = clamp(L.size * f, 10, 800); L.w = Math.max(30, L.w * f); L.pad *= f; L.sw *= f; }
+  else { L.w = Math.max(12, L.w * f); L.h = Math.max(12, L.h * f); }
+}
+function placeAt(L, h, v) {
+  const r = safeRect(), d = dims(L);
+  if (h === 'left') L.x = r.l + d.w / 2; else if (h === 'right') L.x = r.r - d.w / 2; else if (h === 'center') L.x = S.W / 2;
+  if (v === 'top') L.y = r.t + d.h / 2; else if (v === 'bottom') L.y = r.b - d.h / 2; else if (v === 'middle') L.y = S.H / 2;
+}
+function wordsToPos(low) {
+  let h = null, v = null;
+  if (/\bleft\b/.test(low)) h = 'left'; else if (/\bright\b/.test(low)) h = 'right';
+  if (/\b(?:top|upper|up)\b/.test(low)) v = 'top'; else if (/\b(?:bottom|lower|down)\b/.test(low)) v = 'bottom';
+  if (/\b(?:centre|center|centred|centered|middle)\b/.test(low)) { if (!h) h = 'center'; if (!v) v = 'middle'; }
+  return { h, v };
+}
+function setTimeOnLayers(ls, s, e) { ls.forEach(L => { setTimes(L, s ?? L.start, e ?? L.end); L.touched = true; }); }
+const unq = s => String(s).replace(/([a-z])/g, (m, c) => CMD.quotes[c.charCodeAt(0) - 97] ?? '');
+function cleanBody(b) { return unq(b).replace(/^[\s:,-]+/, '').replace(/^["“']+|["”']+$/g, '').trim(); }
+function addTextLayer(txt) {
+  commit();
+  const L = mkText(); L.text = txt || 'Your text';
+  if (S.t > .05) { L.start = Math.min(S.t, Math.max(0, S.dur - .5)); L.full = false; }
+  S.layers.push(L); S.sel = L.id; S.crop = false;
+  return L;
+}
+const FONT_WORDS = [[/\bserif\b/, 2], [/\b(?:handwritten|handwriting|script|cursive)\b/, 4], [/\b(?:typewriter|monospace|mono|courier)\b/, 5], [/\brounded\b/, 3], [/\b(?:bold sans|impact|heavy|chunky|arial black)\b/, 0], [/\b(?:clean|plain|simple|modern|normal)\b/, 1]];
+const LOOK_WORDS = [[/\b(?:black and white|black ?& ?white|b ?& ?w|b\/w|grayscale|greyscale|monochrome)\b/, 'bw'], [/\bwarm(?:er)?\b/, 'warm'], [/\bcool(?:er)?\b/, 'cool'], [/\b(?:vintage|retro|old film|old-school)\b/, 'vintage'], [/\b(?:vivid|saturated|punchy)\b/, 'vivid'], [/\b(?:matte|faded)\b/, 'matte'], [/\b(?:dramatic|cinematic|moody)\b/, 'dramatic']];
+const RATIO_KEYS = { '9:16': [9, 16], '16:9': [16, 9], '1:1': [1, 1], '4:5': [4, 5], '3:4': [3, 4], '4:3': [4, 3], '2:3': [2, 3], '3:2': [3, 2] };
+const FX_SIDE = { left: 'slideL', right: 'slideR', top: 'slideU', bottom: 'slideD', up: 'slideD', down: 'slideU' };
+const NEXT = Symbol('next');
+
+const RULES = [
+  // ----- help, undo, redo
+  { t: /^(?:help|what can (?:you|i) do|commands?|examples?|how does this work)\b/i, f: () => { openCmdHelp(); return 'Here are some things you can type.'; } },
+  { t: /^(?:undo|take (?:that )?back|go back one step)\b/i, f: () => { undoStep(-1); return 'Undone.'; } },
+  { t: /^redo\b/i, f: () => { undoStep(1); return 'Redone.'; } },
+  { t: /\b(?:clear|remove|delete|erase|wipe)\s+(?:everything|all items|all layers|the canvas|the whole canvas)\b|^(?:start over|clear all|clear)$/i, f: () => { if (!S.layers.length) return 'The canvas is already empty.'; $('#clear').click(); return 'Cleared everything. Press Undo to bring it back.'; } },
+  // ----- saving and exporting
+  { t: s => /\bgif\b/i.test(s) && /\b(?:save|export|download|render|create|make|produce|turn)\b/i.test(s) && !/\b(?:add|import|upload|insert|load|use|place)\b/i.test(s), f: () => { $('#dlGif').click(); return 'Making your GIF. Keep this tab open until it is saved.'; } },
+  { t: s => /\bmp3\b/i.test(s) || (/\b(?:save|export|download)\b/i.test(s) && /\b(?:audio|sound|music)\b/i.test(s) && !/\bvolume\b/i.test(s)), f: () => { $('#dlMp3').click(); return 'Saving the sound as an MP3.'; } },
+  { t: s => /\b(?:record|export|save|download|render)\b/i.test(s) && /\b(?:video|mp4|reel|movie|webm)\b/i.test(s) && !/\b(?:add|import|voice)/i.test(s), f: () => { $('#dlVid').click(); return 'Recording the video in real time. Keep this tab open until it is saved.'; } },
+  { t: s => /\b(?:save|export|download)\b/i.test(s) && /\b(?:png|jpe?g|picture|image|still|screenshot|frame)\b/i.test(s), f: s => { const j = /\bjpe?g\b/i.test(s); (j ? $('#dlJpg') : $('#dlPng')).click(); return 'Saving a ' + (j ? 'JPG' : 'PNG') + ' picture.'; } },
+  { t: /\b(?:save|download)\b.*\b(?:project|my work|everything)\b/i, f: () => { saveProject(); return 'Saving the project file.'; } },
+  { t: /\bfull[\s-]?screen\b/i, f: s => { if (/\b(?:fill|cover|photo|picture|video|image|text|it|item)\b/i.test(s) && getSel()) return NEXT; $('#fsBtn').click(); return 'Switching full screen.'; } },
+  // ----- playback
+  { t: /\b(?:loop)\b.*\b(?:timeline|playback|preview|video|everything)\b|\b(?:timeline|playback|preview)\b.*\bloop\b/i, f: s => { const on = !/\b(?:off|stop|don'?t|no|disable)\b/i.test(s); if ($('#tlLoop').checked !== on) $('#tlLoop').click(); return 'Looping is ' + (on ? 'on' : 'off') + '.'; } },
+  { t: /^(?:rewind|restart|go to (?:the )?(?:start|beginning)|from the (?:start|beginning)|back to (?:the )?start)\b/i, f: () => { seekTime(0); return 'Moved the playhead to the start.'; } },
+  { t: /\b(?:go to|jump to|skip to|seek to|move the playhead to|playhead (?:to|at))\s*(\d+(?:\.\d+)?)/i, f: s => { const t = NUMV(s.match(/(\d+(?:\.\d+)?)/)[1]); seekTime(t); return 'Moved the playhead to ' + t + ' s.'; } },
+  { t: /^(?:play|resume|start playing|preview)\b/i, f: () => { setPlaying(true); return 'Playing.'; } },
+  { t: /^(?:pause|stop playing|stop)$|^pause\b/i, f: () => { setPlaying(false); return 'Paused.'; } },
+  // ----- beats and voice-over
+  { t: /\bstop\b.*\b(?:recording|voice)/i, f: () => { stopVoice(); return 'Stopped recording.'; } },
+  { t: /\b(?:record|start recording)\b.*\b(?:voice|voice-?over|narration|mic|microphone)\b|\bvoice-?over\b.*\brecord/i, f: (s, c) => { if (c.async) throw new CmdErr('Press the "Record voice-over" button in the Beats and voice-over panel (the browser needs a click to use the microphone).'); startVoice(); return 'Asking for the microphone. Recording starts at the playhead.'; } },
+  { t: /\b(?:clear|remove|delete|reset)\b.*\bbeats?\b/i, f: () => { commit(); S.beats = []; buildTimeline(); buildSndPanel(); commitNow(); return 'Beat marks removed.'; } },
+  { t: s => /\bbeats?\b/i.test(s) && /\b(?:put|place|cut|change|switch|sync|move|snap|match|set|make|line)\b/i.test(s) && /\b(?:photos?|pictures?|images?|videos?|clips?|items?|everything|them|it)\b|\bbeat.?sync/i.test(s), f: async s => {
+    const ev = s.match(/every\s*(\d+)(?:st|nd|rd|th)?\s*beat/i); if (ev) SND.every = [1, 2, 4, 8].includes(+ev[1]) ? +ev[1] : 1;
+    else if (/\bevery\s+(?:other|second)\s+beat/i.test(s)) SND.every = 2;
+    if (S.beats.length < 3) { await beatSource(); await findBeats(); }
+    if (S.beats.length < 3) throw new CmdErr('I could not find a clear beat in the music.');
+    placeOnBeats(); return 'Photos and videos now change on ' + (SND.every === 1 ? 'every beat' : 'every ' + SND.every + ' beats') + '.'; } },
+  { t: s => /\bbeats?\b/i.test(s) && /\b(?:find|detect|mark|analy[sz]e|show|get|listen|where)\b/i.test(s), f: async () => { await beatSource(); await findBeats(); if (S.beats.length < 3) throw new CmdErr('I could not find a clear beat in the music.'); return 'Beats marked on the time ruler.'; } },
+  // ----- the canvas
+  { t: /\bsafe[\s-]?zones?\b/i, f: s => { const on = !/\b(?:hide|off|remove|disable|without|no|stop)\b/i.test(s); if ($('#safeZones').checked !== on) $('#safeZones').click(); return 'Reels safe zones ' + (on ? 'shown' : 'hidden') + '.'; } },
+  { t: s => { const l = s.toLowerCase(); return /\b(?:make|set|switch|change|use|turn|convert|canvas|format|ratio|size)\b/.test(l) && !/\badd\b/.test(l) && (/\b(?:9\s*[:x\/]\s*16|16\s*[:x\/]\s*9|1\s*[:x\/]\s*1|4\s*[:x\/]\s*5|3\s*[:x\/]\s*4|4\s*[:x\/]\s*3|2\s*[:x\/]\s*3|3\s*[:x\/]\s*2)\b/.test(l) || /\b(?:reels?|stor(?:y|ies)|shorts?|tiktok|vertical|portrait|square|landscape|widescreen|horizontal|youtube)\b/.test(l)) && !/\b(?:text|photo|picture|image|video|clip|shape|bigger|smaller)\b/.test(l.replace(/\b(?:the )?video\b(?= (?:a )?(?:reel|story|vertical|square|landscape))/, '')) ; },
+    f: s => {
+      const l = s.toLowerCase(); let key = null;
+      const m = l.match(/\b(9|16|1|4|3|2)\s*[:x\/]\s*(16|9|1|5|4|3|2)\b/); if (m) key = m[1] + ':' + m[2];
+      if (!key || !RATIO_KEYS[key]) key = /\b(?:reels?|stor(?:y|ies)|shorts?|tiktok|vertical|portrait)\b/.test(l) ? '9:16' : /\bsquare\b/.test(l) ? '1:1' : /\b(?:landscape|widescreen|horizontal|youtube)\b/.test(l) ? '16:9' : null;
+      if (!key || !RATIO_KEYS[key]) throw new CmdErr('I know the shapes 9:16, 16:9, 1:1, 4:5, 3:4, 4:3, 2:3 and 3:2.');
+      setRatio(RATIO_KEYS[key][0], RATIO_KEYS[key][1], key); return 'Canvas is now ' + key + '.'; } },
+  { t: /\b(?:background|backdrop)\b/i, f: s => {
+      const cs = findColours(s), grad = /\bgradient|blend|fade between\b/i.test(s) || cs.length >= 2;
+      if (!cs.length) { if (/\bgradient\b/i.test(s)) { commit(); S.grad = true; buildCanvas(); commitNow(); schedule(); return 'Background gradient on.'; } throw new CmdErr('Which colour? For example "background black" or "background gradient blue and purple".'); }
+      commit(); S.bg1 = cs[0]; if (grad && cs[1]) { S.bg2 = cs[1]; S.grad = true; } else S.grad = false;
+      buildCanvas(); commitNow(); schedule(); return 'Background changed.'; } },
+  { t: s => /\b(?:timeline|video|reel|clip|movie|length|duration|whole thing|total)\b/i.test(s) && /(\d+(?:\.\d+)?)\s*(?:seconds?|secs?|s|minutes?|mins?)\b|\b(?:length|duration)\b[^\d]{0,12}\d/i.test(s) && !/\b(?:show|appear|visible|display|disappear|hide|start|begin|end|from|between|stay|first|after|before|trim|split|speed|volume|fade|zoom|slide|loop)\b/i.test(s),
+    f: s => {
+      const m = s.match(/(\d+(?:\.\d+)?)\s*(minutes?|mins?|seconds?|secs?|s)?\b/i); let v = NUMV(m[1]); if (/^m/i.test(m[2] || '')) v *= 60;
+      setDur(v); commitNow(); $('#tlLen').value = S.dur; schedule(); return 'The timeline is now ' + S.dur + ' seconds long.'; } },
+  { t: /\bauto[\s-]?arrange|\bshuffle\b|\brearrange\b|\bnew layout\b|\bcollage layout\b/i, f: () => { autoArrange(); return 'Arranged everything into a new layout.'; } },
+  { t: /\bstagger\b|\bone after (?:the )?another\b|\bappear one by one\b/i, f: () => { staggerItems(); return 'Items now appear one after another.'; } },
+  // ----- adding things
+  { t: s => /^(?:add|insert|create|new|write|put|type)\b/i.test(s) && /\bcaptions?\b|\bsubtitles?\b/i.test(s), f: (s, c) => {
+      const m = s.match(/\b(?:captions?|subtitles?)\b\s*(?:saying|that say|that says|for|from|with|reading|:|-|of)?\s*(.*)$/i), body = cleanBody(m ? m[1] : '');
+      if (/^(?:in|using|with)?\s*(?:a\s+|the\s+)?(?:\w+\s+)?style\b/i.test(body) || !body) { if (!CAP.text.trim() && !body) throw new CmdErr('Type the words too, for example: add captions "first line | second line".'); }
+      if (body && !/^(?:style|in the|at the|using)\b/i.test(body)) CAP.text = body.split(/\s*\|\s*|\n|(?<=[.!?])\s+/).filter(Boolean).join('\n');
+      for (const [re, k] of [[/\bkaraoke\b|\bfill\b/i, 'karaoke'], [/\bhighlight\b|\bword by word\b/i, 'word'], [/\byellow\b/i, 'yellow'], [/\bboxed?\b/i, 'boxed'], [/\bclean\b|\bwhite\b/i, 'clean']]) if (re.test(s) && !body) CAP.style = k;
+      addCaptions(); buildCapPanel(); return 'Captions added. Click one on the canvas to change its words.'; } },
+  { t: s => /^(?:add|insert|create|new|write|put|type)\b/i.test(s) && /\b(?:text|title|heading|headline|subtitle|label|words?|quote)\b/i.test(s) && !/\b(?:fade|slide|zoom|animation|transition|effect|filter|shadow|outline|border|keyframe|box|blur|look|sticker|caption|spin|pop|wipe)\b/i.test(s), f: s => {
+      const m = s.match(/\b(?:text|title|heading|headline|subtitle|label|words?|quote)\b\s*(?:saying|that says|which says|reading|says|with|as|:|-|of)?\s*(.*)$/i);
+      let body = cleanBody(m ? m[1] : ''), pos = null, col = null, size = null;
+      for (let k = 0; k < 3; k++) {
+        let mm;
+        if ((mm = body.match(/\s+(?:at|in|on|to)\s+(?:the\s+)?(top|bottom|centre|center|middle|left|right)(?:\s+(?:of the (?:screen|canvas|video)))?$/i))) { pos = (pos ? pos + ' ' : '') + mm[1]; body = body.slice(0, mm.index).trim(); }
+        else if ((mm = body.match(/\s+(?:in|colou?red|coloured)\s+(.+)$/i)) && findColours(mm[1]).length && !col) { col = findColours(mm[1])[0]; body = body.slice(0, mm.index).trim(); }
+        else if ((mm = body.match(/\s+(?:in\s+)?(big|large|huge|small|tiny)$/i))) { size = mm[1].toLowerCase(); body = body.slice(0, mm.index).trim(); }
+        else break;
+      }
+      const L = addTextLayer(body);
+      if (col) L.color = col;
+      if (size) scaleLayer(L, { big: 1.4, large: 1.4, huge: 2, small: .65, tiny: .45 }[size]);
+      if (pos) { const p = wordsToPos(pos.toLowerCase()); placeAt(L, p.h, p.v); }
+      buildAll(); commitNow(); schedule(); return 'Added the text "' + L.text.slice(0, 30) + '".'; } },
+  { t: s => /^(?:add|insert|create|draw|put|make)\b/i.test(s) && /\b(?:circle|triangle|star|heart|arrow|rectangle|rect|box|square|line)\b/i.test(s) && !/\b(?:behind|around|under|to the|on the|for the|to it|sticker|text|caption|fade|slide|zoom)\b/i.test(s) && !/\b(?:make)\b.*\b(?:canvas|format|ratio)\b/i.test(s), f: s => {
+      const l = s.toLowerCase(), cs = findColours(s);
+      if (/\bline\b/.test(l)) { addLine(); const L = getSel(); if (cs[0]) L.fill = cs[0]; }
+      else { const k = /\bcircle\b/.test(l) ? 'circle' : /\btriangle\b/.test(l) ? 'triangle' : /\bstar\b/.test(l) ? 'star' : /\bheart\b/.test(l) ? 'heart' : /\barrow\b/.test(l) ? 'arrow' : 'rect'; addShape(k, SHAPES.find(x => x[0] === k)[1]); const L = getSel(); if (cs[0]) L.fill = cs[0]; if (/\bsquare\b/.test(l)) L.h = L.w; }
+      const L = getSel(), pw = wordsToPos(l.replace(/\b(?:add|a|the)\b/g, '')); if (pw.h || pw.v) placeAt(L, pw.h, pw.v);
+      buildAll(); commitNow(); schedule(); return 'Added a ' + (L.name || 'shape').toLowerCase() + '.'; } },
+  { t: s => /^(?:add|put|insert|place|create)\b/i.test(s) && (/\bstickers?\b|\bemoji\b/i.test(s) || /\p{Extended_Pictographic}/u.test(s)), f: s => {
+      const em = (s.match(/\p{Extended_Pictographic}️?/u) || [])[0] || STICKERS[Math.floor(Math.random() * STICKERS.length)];
+      addSticker(em); return 'Added the sticker ' + em + '.'; } },
+  { t: /^(?:add|import|upload|insert|load|bring in)\b.*\b(?:photos?|pictures?|images?|pics?|gifs?|videos?|clips?|music|audio|songs?|sounds?|tracks?)\b/i, f: (s, c) => {
+      const kind = /\b(?:videos?|clips?)\b/i.test(s) ? ['#addVideo', 'videos'] : /\b(?:music|audio|songs?|sounds?|tracks?)\b/i.test(s) ? ['#addAudio', 'music'] : ['#addPhoto', 'photos'];
+      if (c.async) return 'Use the ＋ ' + kind[1][0].toUpperCase() + kind[1].slice(1) + ' button to choose your files.';
+      $(kind[0]).click(); return 'Choose your ' + kind[1] + ' in the window that opened.'; } },
+  // ----- captions already on the timeline
+  { t: s => /\b(?:captions?|subtitles?)\b/i.test(s), f: s => {
+      const caps = S.layers.filter(l => l.cap);
+      if (/\b(?:remove|delete|clear|erase|get rid of)\b/i.test(s)) { if (!caps.length) return 'There are no captions.'; removeCaptions(); return 'Captions removed.'; }
+      if (!caps.length) throw new CmdErr('There are no captions yet. Try: add captions "first line | second line".');
+      let did = [];
+      for (const [re, k] of [[/\bkaraoke\b|\bfill(?:ing)?\b/i, 'karaoke'], [/\bhighlight|\bword by word\b|\bcurrent word\b/i, 'word'], [/\byellow\b/i, 'yellow'], [/\bboxed?\b|\bdark box\b/i, 'boxed'], [/\bclean\b|\bplain\b|\bsimple\b|\bwhite\b/i, 'clean']]) if (re.test(s)) { CAP.style = k; did.push(CAPSTYLES[k].n.toLowerCase()); break; }
+      if (/\b(?:top|upper)\b/i.test(s)) { CAP.pos = 'top'; did.push('at the top'); } else if (/\b(?:middle|centre|center)\b/i.test(s)) { CAP.pos = 'middle'; did.push('in the middle'); } else if (/\b(?:bottom|lower)\b/i.test(s)) { CAP.pos = 'bottom'; did.push('at the bottom'); }
+      const pc = s.match(/(\d+(?:\.\d+)?)\s*%/); 
+      if (/\b(?:bigger|larger|increase)\b/i.test(s)) { CAP.size = clamp(CAP.size * 1.25, 3, 14); did.push('bigger'); } else if (/\b(?:smaller|reduce|decrease)\b/i.test(s)) { CAP.size = clamp(CAP.size * .8, 3, 14); did.push('smaller'); }
+      else if (/\bsize\b/i.test(s) && pc) { CAP.size = clamp(NUMV(pc[1]) / 10, 3, 14); did.push('size ' + pc[1] + '%'); }
+      if (!did.length) throw new CmdErr('For captions you can say: karaoke, highlight, yellow, boxed, clean, top, middle, bottom, bigger, smaller, or remove captions.');
+      restyleCaptions(); buildCapPanel(); return 'Captions changed: ' + did.join(', ') + '.'; } },
+  // ----- keyframes (before the general "move" rules)
+  { t: /\b(?:remove|clear|delete|reset)\b.*\bkeyframes?\b/i, f: s => { const L = pickTargets(s, isVisual); commit(); L.forEach(l => { l.kf = []; l.touched = true; }); cmdRefresh(1); commitNow(); return 'Motion keyframes cleared.'; } },
+  { t: /\b(?:move|slide|drift|travel|go|animate|swipe|pan|sweep|glide)\b.*\bfrom\b.*\b(left|right|top|bottom)\b.*\b(?:to|until)\b.*\b(left|right|top|bottom)\b/i, f: s => {
+      const m = s.match(/\bfrom\b.*?\b(left|right|top|bottom)\b.*?\b(?:to|until)\b.*?\b(left|right|top|bottom)\b/i), a = m[1].toLowerCase(), b = m[2].toLowerCase();
+      const ts = pickTargets(s, isVisual); commit();
+      ts.forEach(L => {
+        const r = safeRect(), d = dims(L), pos = k => ({ left: [r.l + d.w / 2, null], right: [r.r - d.w / 2, null], top: [null, r.t + d.h / 2], bottom: [null, r.b - d.h / 2] }[k]);
+        const A = pos(a), B = pos(b), dur = Math.max(.2, L.end - L.start);
+        const dx = p => p[0] === null ? 0 : p[0] - L.x, dy = p => p[1] === null ? 0 : p[1] - L.y;
+        L.kf = [{ t: 0, dx: dx(A), dy: dy(A), k: 1, r: 0, o: 1 }, { t: Math.round(dur * 100) / 100, dx: dx(B), dy: dy(B), k: 1, r: 0, o: 1 }]; L.touched = true;
+      });
+      cmdRefresh(1); commitNow(); return 'The item now moves from the ' + a + ' to the ' + b + ' over the time it is showing.'; } },
+  { t: /\b(?:grow|shrink|scale|zoom|get bigger|get smaller)\b.*\bfrom\s*(\d+)\s*%?\s*to\s*(\d+)\s*%/i, f: s => {
+      const m = s.match(/from\s*(\d+)\s*%?\s*to\s*(\d+)\s*%/i), ts = pickTargets(s, isVisual); commit();
+      ts.forEach(L => { const dur = Math.round(Math.max(.2, L.end - L.start) * 100) / 100; L.kf = [{ t: 0, dx: 0, dy: 0, k: NUMV(m[1]) / 100, r: 0, o: 1 }, { t: dur, dx: 0, dy: 0, k: NUMV(m[2]) / 100, r: 0, o: 1 }]; L.touched = true; });
+      cmdRefresh(1); commitNow(); return 'The item now changes from ' + m[1] + '% to ' + m[2] + '% size over the time it is showing.'; } },
+  { t: /\b(?:spin|rotate|turn)\b.*\b(?:once|full (?:turn|circle|rotation)|360)\b/i, f: s => {
+      const ts = pickTargets(s, isVisual); commit();
+      ts.forEach(L => { const dur = Math.round(Math.max(.2, L.end - L.start) * 100) / 100; L.kf = [{ t: 0, dx: 0, dy: 0, k: 1, r: 0, o: 1 }, { t: dur, dx: 0, dy: 0, k: 1, r: 360, o: 1 }]; L.touched = true; });
+      cmdRefresh(1); commitNow(); return 'The item now turns once all the way round.'; } },
+  // ----- sound
+  { t: /\b(?:volume|louder|quieter|softer|turn (?:it )?(?:up|down)|lower the sound|mute|unmute|silent|silence)\b/i, f: s => {
+      const ts = pickTargets(s, hasSound), low = s.toLowerCase(); commit();
+      if (/\bunmute\b/.test(low)) { ts.forEach(L => { L.sound = true; L.touched = true; }); cmdRefresh(1); commitNow(); return 'Sound is back on.'; }
+      if (/\b(?:mute|silent|silence)\b/.test(low)) { ts.forEach(L => { L.sound = false; L.touched = true; }); cmdRefresh(1); commitNow(); return 'Muted.'; }
+      const pct = low.match(/(\d+(?:\.\d+)?)\s*%/) || low.match(/\bvolume\b\s*(?:to|at|=)?\s*(\d+(?:\.\d+)?)/);
+      const tm = low.match(/(?:from|at|after|between)\s*(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?)?(?:\s*(?:to|and|until|till|-)\s*(\d+(?:\.\d+)?))?/);
+      if (pct) {
+        let v = clamp(NUMV(pct[1]) / 100, 0, 1);
+        if (tm && !(tm[1] === pct[1] && !tm[2])) {
+          const A = NUMV(tm[1]), B = tm[2] ? NUMV(tm[2]) : null;
+          ts.forEach(L => { const back = B !== null ? volAt(L, B) : null; L.vsteps = (L.vsteps || []).filter(c => !(B !== null && c.t > A && c.t < B)); L.vsteps.push({ t: A, v }); if (B !== null) L.vsteps.push({ t: B, v: back }); L.vsteps.sort((x, y) => x.t - y.t); L.touched = true; });
+          cmdRefresh(1); commitNow(); return 'Volume is ' + Math.round(v * 100) + '% from ' + A + ' s' + (B !== null ? ' to ' + B + ' s' : ' onwards') + '.'; }
+        ts.forEach(L => { L.vol = v; L.touched = true; }); cmdRefresh(1); commitNow(); return 'Volume set to ' + Math.round(v * 100) + '%.';
+      }
+      const up = /\b(?:louder|turn (?:it )?up|increase|raise|boost)\b/.test(low), dn = /\b(?:quieter|softer|lower|turn (?:it )?down|decrease|reduce|less)\b/.test(low);
+      if (up || dn) { ts.forEach(L => { L.vol = clamp((L.vol || 0.01) * (up ? 1.35 : .7), 0, 1); L.touched = true; }); cmdRefresh(1); commitNow(); return up ? 'Made it louder.' : 'Made it quieter.'; }
+      throw new CmdErr('Say how loud, for example "volume 40%" or "volume 30% from 5 to 8 seconds".'); } },
+  { t: /\bloop\b|\brepeat\b/i, f: s => { const ts = pickTargets(s, L => L.type === 'audio'); const on = !/\b(?:don'?t|stop|no|off|without)\b/i.test(s); commit(); ts.forEach(L => { L.loop = on; L.touched = true; }); cmdRefresh(1); commitNow(); return on ? 'The sound now repeats to fill its bar.' : 'The sound no longer repeats.'; } },
+  { t: s => /\b(?:speed|faster|slower|slow[\s-]?mo(?:tion)?|slow down|speed up|\d+(?:\.\d+)?\s*x)\b/i.test(s) && !/\b(?:animation|spin|strength)\b/i.test(s), f: s => {
+      const ts = pickTargets(s, hasSound), low = s.toLowerCase(); commit();
+      const m = low.match(/(\d+(?:\.\d+)?)\s*x\b/) || low.match(/\bspeed\b\s*(?:to|at|of|=)?\s*(\d+(?:\.\d+)?)/);
+      const pc = low.match(/(\d+)\s*%\s*speed|speed\s*(?:to|at)?\s*(\d+)\s*%/);
+      ts.forEach(L => {
+        let v = L.speed || 1;
+        if (m) v = NUMV(m[1]); else if (pc) v = NUMV(pc[1] || pc[2]) / 100;
+        else if (/\bslow[\s-]?mo|\bhalf speed\b/.test(low)) v = .5; else if (/\b(?:faster|speed up|quicker)\b/.test(low)) v = v * 1.5; else if (/\b(?:slower|slow down)\b/.test(low)) v = v / 1.5;
+        L.speed = clamp(Math.round(v * 100) / 100, .25, 4); L.touched = true; if (L.fitTrim) trimChanged(L);
+      });
+      cmdRefresh(1); commitNow(); return 'Speed is now ' + (ts[0].speed).toFixed(2).replace(/\.?0+$/, '') + '×.'; } },
+  { t: /\btrim\b/i, f: s => {
+      const ts = pickTargets(s, hasSound), m = s.match(/(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?)/i); if (!m) throw new CmdErr('Say how many seconds, for example "trim to the first 5 seconds".');
+      const n = NUMV(m[1]); commit();
+      ts.forEach(L => { if (/\b(?:first|start|beginning)\b/i.test(s) && /\b(?:remove|cut|drop|skip|off)\b/i.test(s)) L.trimIn = clamp(L.trimIn + n, 0, L.trimOut - .2); else L.trimOut = clamp(L.trimIn + n, L.trimIn + .2, L.trimOut); L.touched = true; trimChanged(L); });
+      cmdRefresh(1); commitNow(); return 'Trimmed.'; } },
+  { t: /\bsplit\b|\bcut (?:it|the \w+) (?:in two|here|at)\b/i, f: s => {
+      const ts = pickTargets(s, L => L.type !== 'text' || true), m = s.match(/(?:at|on)\s*(\d+(?:\.\d+)?)/i); if (m) seekTime(NUMV(m[1]));
+      splitLayer(ts[0].id); return 'Split in two at ' + S.t.toFixed(1) + ' s.'; } },
+  // ----- transitions and animations
+  { t: /\b(?:no|remove|clear|without|stop|turn off|disable)\b.*\b(?:animations?|effects?|transitions?)\b/i, f: s => { const ts = pickTargets(s, isVisual); commit(); ts.forEach(L => { L.inFx = L.outFx = L.anim = 'none'; L.touched = true; }); cmdRefresh(1); commitNow(); return 'Transitions and animation removed.'; } },
+  { t: s => /\b(?:fade|slide|zoom|pop|wipe|drop|bounce|spin|swirl|typewriter|typing|type on|float|hover|pulse|heartbeat|breathe|sway|swing|shake|vibrate|ken burns|pan)\b/i.test(s) && !/\b(?:rotate|degrees?)\b/i.test(s), f: s => {
+      const low = s.toLowerCase();
+      const wantsAudio = /\b(?:music|audio|sounds?|songs?|voice|narration)\b/.test(low) || (cmdFocus() && cmdFocus().type === 'audio' && !/\b(?:photo|video|text|picture|image)\b/.test(low));
+      if (wantsAudio && /\bfade\b/.test(low)) {
+        const ts = pickTargets(s, L => L.type === 'audio'), d = (low.match(/(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?)/) || [])[1];
+        let dirs = low.replace(/\b(?:over|for)\s+\d+(?:\.\d+)?\s*(?:s|secs?|seconds?)\b/g, ''); if (/\bout\b/.test(dirs)) dirs = dirs.replace(/\bin\s+\d+(?:\.\d+)?\s*(?:s|secs?|seconds?)\b/g, '');
+        const wIn = /\bin\b/.test(dirs), wOut = /\bout\b/.test(dirs), both = wIn === wOut;
+        commit(); ts.forEach(L => { const sec = d ? NUMV(d) : 2; if (both || wIn) L.fadeIn = sec; if (both || wOut) L.fadeOut = sec; L.touched = true; });
+        cmdRefresh(1); commitNow(); return 'The sound now fades ' + (both ? 'in and out' : wIn ? 'in' : 'out') + '.'; }
+      const ts = pickTargets(s, isVisual), isIn = /\b(?:in|enter|entrance|appear|start|begin|intro)\b/.test(low), isOut = /\b(?:out|exit|leave|disappear|end|outro|vanish)\b/.test(low);
+      const dm = low.match(/(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?)/);
+      let inFx = null, outFx = null, anim = null;
+      const pickOne = (fx, def) => { if (isIn && isOut) { inFx = fx; outFx = fx; } else if (isOut && !isIn) outFx = fx; else if (isIn || def === 'in') inFx = fx; else outFx = fx; };
+      let mm;
+      if (/\bfade\b/.test(low)) { if (isIn && !isOut) inFx = 'fade'; else if (isOut && !isIn) outFx = 'fade'; else { inFx = 'fade'; outFx = 'fade'; } }
+      else if ((mm = low.match(/\bslides?\b.*?\b(left|right|top|bottom|up|down)\b/))) { const fx = FX_SIDE[mm[1]]; if (isOut && !isIn) outFx = fx; else if (isIn && isOut) { inFx = fx; outFx = fx; } else inFx = fx; if (/\bto the\b|\bslide out\b/.test(low) && !isIn) { outFx = fx; inFx = null; } }
+      else if (/\bslides?\b/.test(low)) pickOne('slideL', 'in');
+      else if (/\b(?:slow(?:ly)?|ken burns|gentle(?:ly)?|continuous(?:ly)?|keep|while)\b/.test(low) && /\bzoom\b/.test(low)) anim = /\bzoom(?:ing)?\s*out\b|\bout\b/.test(low) ? 'kenOut' : 'kenIn';
+      else if (/\bzoom(?:ing)?\s*out\b/.test(low)) outFx = 'zoomOut';
+      else if (/\bzoom\b/.test(low)) inFx = 'zoomIn';
+      else if (/\bpop\b/.test(low)) pickOne('pop', 'in');
+      else if (/\b(?:drop|bounce)\b/.test(low) && !/\bpulse\b/.test(low)) pickOne('drop', 'in');
+      else if (/\bwipe\b/.test(low)) pickOne('wipe', 'in');
+      else if (/\b(?:typewriter|typing|type on)\b/.test(low)) { if (ts.some(L => L.type !== 'text')) throw new CmdErr('Typewriter only works on text.'); pickOne('type', 'in'); }
+      else if (/\b(?:keep|constantly|continuous(?:ly)?|forever)\b.*\b(?:spin|spinning|rotat)/.test(low) || /\bspin(?:ning)?\b.*\b(?:forever|constantly|continuous(?:ly)?)\b/.test(low)) anim = 'spin';
+      else if (/\b(?:spin|swirl)\b/.test(low)) pickOne('spin', 'in');
+      else if (/\b(?:float|hover|bob)\b/.test(low)) anim = 'float';
+      else if (/\b(?:pulse|heartbeat|breathe|breathing)\b/.test(low)) anim = 'pulse';
+      else if (/\b(?:sway|swing)\b/.test(low)) anim = 'sway';
+      else if (/\b(?:shake|vibrate|shaking)\b/.test(low)) anim = 'shake';
+      else if (/\bpan\b/.test(low)) anim = /\bright\b/.test(low) ? 'panR' : 'panL';
+      else return NEXT;
+      commit();
+      ts.forEach(L => {
+        if (inFx) { L.inFx = inFx === 'type' && L.type !== 'text' ? 'fade' : inFx; if (dm) L.inDur = clamp(NUMV(dm[1]), .1, 3); }
+        if (outFx) { L.outFx = outFx === 'type' && L.type !== 'text' ? 'fade' : outFx; if (dm) L.outDur = clamp(NUMV(dm[1]), .1, 3); }
+        if (anim) L.anim = anim;
+        L.touched = true;
+      });
+      cmdRefresh(1); commitNow();
+      return anim ? 'Animation added.' : 'Transition added' + (inFx && outFx ? ' for coming in and going out.' : inFx ? ' for coming in.' : ' for going out.'); } },
+  // ----- looks and filters
+  { t: s => LOOK_WORDS.some(([re]) => re.test(s.toLowerCase())) || /\b(?:no filter|remove (?:the )?filters?|original colou?rs?|normal colou?rs?|reset (?:the )?(?:look|filters?|colou?rs?))\b/i.test(s) || /\b(?:brightness|brighter|darker|brighten|darken|lighten|contrast|saturat\w*|desaturat\w*|colou?rful|dull|sepia|vignette|dark edges|blurred? (?:background|copy|fill)|blur)\b/i.test(s) && !/\bbackground (?:colou?r|to)\b/i.test(s), f: s => {
+      const low = s.toLowerCase(), ts = pickTargets(s, isMedia); commit();
+      const look = LOOK_WORDS.find(([re]) => re.test(low));
+      const pc = (low.match(/(\d+(?:\.\d+)?)\s*%/) || [])[1];
+      let did = '';
+      ts.forEach(L => {
+        if (/\b(?:no filter|remove (?:the )?filters?|original colou?rs?|normal colou?rs?|reset)\b/.test(low)) { LOOK_KEYS.forEach(k => delete L[k]); did = 'Filters removed.'; }
+        else if (/\bblurred? (?:background|copy|fill)\b|\bblur[\s-]?fill\b/.test(low)) { L.fit = 'contain'; L.blurBg = !/\b(?:no|remove|off)\b/.test(low); did = 'Blurred background copy ' + (L.blurBg ? 'on' : 'off') + '.'; }
+        else if (look) { LOOK_KEYS.forEach(k => delete L[k]); Object.assign(L, LOOKS.find(l => l[0] === look[1])[2]); did = LOOKS.find(l => l[0] === look[1])[1] + ' look applied.'; }
+        else {
+          const set = (key, by, lo, hi, nm) => { const base = L[key] ?? (key === 'fBlur' || key === 'vig' || key === 'fSepia' || key === 'fGray' || key === 'fHue' ? 0 : 1); L[key] = clamp(by(base), lo, hi); did = nm + ' changed.'; };
+          if (/\bblur\b/.test(low)) { const px = (low.match(/(\d+(?:\.\d+)?)\s*(?:px|pixels?)?/) || [])[1]; set('fBlur', b => px ? NUMV(px) : (/\b(?:remove|no|off|less)\b/.test(low) ? 0 : b + 6), 0, 40, 'Blur'); }
+          else if (/\bvignette\b|\bdark edges\b/.test(low)) set('vig', b => pc ? NUMV(pc) / 100 : (/\b(?:remove|no|off)\b/.test(low) ? 0 : .45), 0, 1, 'Dark edges');
+          else if (/\bsepia\b/.test(low)) set('fSepia', b => pc ? NUMV(pc) / 100 : .6, 0, 1, 'Sepia');
+          else if (/\bcontrast\b/.test(low)) set('fContrast', b => pc ? NUMV(pc) / 100 : /\b(?:less|lower|reduce|decrease|softer|flat)\b/.test(low) ? b * .85 : b * 1.2, .4, 1.8, 'Contrast');
+          else if (/\bdesaturat\w*|\bdull\b/.test(low)) set('fSat', b => pc ? NUMV(pc) / 100 : b * .6, 0, 2.2, 'Colour strength');
+          else if (/\bsaturat\w*|\bcolou?rful\b/.test(low)) set('fSat', b => pc ? NUMV(pc) / 100 : /\b(?:less|lower|reduce)\b/.test(low) ? b * .8 : b * 1.3, 0, 2.2, 'Colour strength');
+          else set('fBright', b => pc ? NUMV(pc) / 100 : /\b(?:darker|darken|dim|lower|less|reduce|decrease)\b/.test(low) ? b * .85 : b * 1.18, .4, 1.6, 'Brightness');
+        }
+        L.touched = true;
+      });
+      cmdRefresh(1); commitNow(); return did || 'Done.'; } },
+  // ----- when things show
+  { t: s => /(?:from|between)\s*\d/i.test(s) && /\b(?:show|appear|visible|display|stay|on screen|play|be there|keep|between)\b|^\s*(?:from|between)\b/i.test(s) && !/\bvolume\b/i.test(s), f: s => {
+      const m = s.match(/(?:from|between)\s*(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?)?\s*(?:to|and|until|till|-)\s*(\d+(?:\.\d+)?)/i); if (!m) return NEXT;
+      const ts = pickTargets(s, () => true); commit(); setTimeOnLayers(ts, NUMV(m[1]), NUMV(m[2])); cmdRefresh(1); commitNow(); return 'It now shows from ' + m[1] + ' s to ' + m[2] + ' s.'; } },
+  { t: s => /\b(?:whole|entire|full) (?:timeline|video|time|length)\b|\bthroughout\b|\ball (?:the )?(?:time|way through)\b/i.test(s) && /\b(?:show|appear|stay|visible|keep|display|be)\b/i.test(s), f: s => { const ts = pickTargets(s, () => true); commit(); ts.forEach(L => { L.full = true; L.start = 0; L.end = S.dur; L.touched = true; if (L.type === 'video') L.fitTrim = false; delete L.aStart; delete L.aEnd; }); cmdRefresh(1); commitNow(); return 'It now shows for the whole timeline.'; } },
+  { t: /\b(?:disappear|end|vanish|go away|leave|hide|exit|remove|stop)\b.*\b(?:at|after|by|before)\s*(\d+(?:\.\d+)?)/i, f: s => { const m = s.match(/\b(?:at|after|by|before)\s*(\d+(?:\.\d+)?)/i), ts = pickTargets(s, () => true); commit(); setTimeOnLayers(ts, null, NUMV(m[1])); cmdRefresh(1); commitNow(); return 'It now disappears at ' + m[1] + ' s.'; } },
+  { t: /\b(?:appear|start|begin|show(?: up)?|come in|enter|display|visible)\b.*\b(?:at|after|from|in)\s*(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?)?(?!\s*(?:to|-))/i, f: s => {
+      const m = s.match(/\b(?:at|after|from|in)\s*(\d+(?:\.\d+)?)/i), ts = pickTargets(s, () => true), d = s.match(/\bfor\s*(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?)/i); commit();
+      ts.forEach(L => { const st = NUMV(m[1]); const len = d ? NUMV(d[1]) : Math.max(.1, L.end - L.start); setTimes(L, st, d ? st + len : Math.max(st + .1, L.end)); L.touched = true; });
+      cmdRefresh(1); commitNow(); return 'It now appears at ' + m[1] + ' s' + (d ? ' for ' + d[1] + ' s' : '') + '.'; } },
+  { t: /\b(?:show|stay|keep|display|appear|visible)\b.*\bfor\s*(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?)/i, f: s => { const m = s.match(/\bfor\s*(\d+(?:\.\d+)?)/i), ts = pickTargets(s, () => true); commit(); ts.forEach(L => { setTimes(L, L.start, L.start + NUMV(m[1])); L.touched = true; }); cmdRefresh(1); commitNow(); return 'It now shows for ' + m[1] + ' s.'; } },
+  { t: /\b(?:delay|shift|push|move)\b.*?(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?)\s*(?:later|earlier|back|forward|ahead)?/i, f: s => {
+      const m = s.match(/(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?)\s*(later|earlier|back|forward|ahead)?/i); if (!m) return NEXT;
+      const ts = pickTargets(s, () => true), n = NUMV(m[1]) * (/\b(?:earlier|back|before)\b/i.test(s) ? -1 : 1); commit();
+      ts.forEach(L => { const len = L.end - L.start, st = clamp(L.start + n, 0, Math.max(0, S.dur - len)); setTimes(L, st, st + len); L.touched = true; });
+      cmdRefresh(1); commitNow(); return 'Moved ' + (n < 0 ? 'earlier' : 'later') + ' by ' + Math.abs(n) + ' s.'; } },
+  // ----- order, delete, duplicate, hide
+  { t: s => /\b(?:bring|move|put|send|go|place)\b/i.test(s) && /\b(?:front|forward|on top of (?:everything|all)|over everything)\b/i.test(s), f: s => { const ts = pickTargets(s, isVisual); ts.forEach(L => moveLayer(L.id, 'front')); return 'Brought to the front.'; } },
+  { t: s => /\b(?:send|move|put|push|go)\b/i.test(s) && /\b(?:to the back|backward|behind everything|at the back|to back|back of)\b|\bsend (?:it )?back\b/i.test(s), f: s => { const ts = pickTargets(s, isVisual); ts.forEach(L => moveLayer(L.id, 'back')); return 'Sent to the back.'; } },
+  { t: /^(?:duplicate|copy|clone)\b|\bmake (?:a )?cop(?:y|ies)\b/i, f: s => { const ts = pickTargets(s, () => true); ts.forEach(L => duplicateLayer(L.id)); return 'Duplicated.'; } },
+  { t: s => /^(?:delete|remove|erase|trash|get rid of|take away|take out)\b/i.test(s) && !/\b(?:captions?|beats?|keyframes?|filters?|effects?|animations?|transitions?|background|border|outline|shadow|blur|vignette|safe|fade|box)\b/i.test(s) && !/\d/.test(s), f: s => { const ts = pickTargets(s, () => true); const ids = ts.map(L => L.id); ids.forEach(id => deleteLayer(id)); return 'Deleted ' + (ids.length > 1 ? ids.length + ' items.' : 'it.'); } },
+  { t: /^(?:hide|unhide|show|reveal)\b(?!.*\d)|\bmake (?:it|them|the \w+) (?:invisible|visible)\b/i, f: s => { const on = /^(?:unhide|show|reveal)\b|\bvisible\b/i.test(s) && !/\binvisible\b/i.test(s); const ts = pickTargets(s, () => true); commit(); ts.forEach(L => { L.hidden = !on; L.touched = true; }); cmdRefresh(1); commitNow(); return on ? 'Showing it.' : 'Hidden. Say "show it" to bring it back.'; } },
+  // ----- text
+  { t: /\b(?:change|set|edit|replace|rename|update|make)\b.*\b(?:text|title|heading|words?|label|it)\b.*?\b(?:to|say|says|into|saying)\b\s*\S|\bmake it say\b|\brewrite\b.*\bas\b/i, f: s => {
+      const m = s.match(/\b(?:to say|to read|to|says|say|into|saying|as)\b\s*(.+)$/i); if (!m) return NEXT;
+      const body = cleanBody(m[1]); if (!body) return NEXT;
+      const ts = pickTargets(s, L => L.type === 'text' && !L.cap); commit(); ts[0].text = body; ts[0].touched = true; cmdRefresh(1); commitNow(); return 'Text changed.'; } },
+  { t: s => /\b(?:font|typeface|lettering)\b/i.test(s) || FONT_WORDS.some(([re]) => re.test(s.toLowerCase())) && /\b(?:make|use|change|set|switch|text|font)\b/i.test(s) && !/\b(?:photo|video)\b/i.test(s), f: s => {
+      const hit = FONT_WORDS.find(([re]) => re.test(s.toLowerCase())); if (!hit) throw new CmdErr('Fonts I know: bold sans, clean sans, serif, rounded, handwritten, typewriter.');
+      const ts = pickTargets(s, L => L.type === 'text'); commit(); ts.forEach(L => { L.font = FONTS[hit[1]].f; L.touched = true; }); cmdRefresh(1); commitNow(); return 'Font changed to ' + FONTS[hit[1]].n + '.'; } },
+  { t: /\b(?:bold|italic|italics|slanted)\b/i, f: s => {
+      const ts = pickTargets(s, L => L.type === 'text'), off = /\b(?:not|no|un|remove|without|turn off|stop)\s*-?\s*(?:bold|italic)|\bunbold\b/i.test(s); commit();
+      ts.forEach(L => { if (/\bbold\b/i.test(s)) L.bold = !off; if (/\bitalic|slanted\b/i.test(s)) L.italic = !off; L.touched = true; }); cmdRefresh(1); commitNow(); return 'Done.'; } },
+  { t: s => /\b(?:align|aligned|justify)\b/i.test(s) && /\b(?:left|right|centre|center)\b/i.test(s) && getSel() && getSel().type === 'text', f: s => { const a = /\bleft\b/i.test(s) ? 'left' : /\bright\b/i.test(s) ? 'right' : 'center'; const ts = pickTargets(s, L => L.type === 'text'); commit(); ts.forEach(L => { L.align = a; L.touched = true; }); cmdRefresh(1); commitNow(); return 'Text aligned ' + a + '.'; } },
+  { t: /\b(?:text|font|letter)\s*size\b|\bsize\b.*\b(?:of the )?(?:text|font)\b|\b(?:font|text) (?:to )?\d+\b/i, f: s => {
+      const m = s.match(/(\d+(?:\.\d+)?)/); if (!m) return NEXT; const ts = pickTargets(s, L => L.type === 'text'); commit();
+      ts.forEach(L => { const f = clamp(NUMV(m[1]), 10, 800) / L.size; scaleLayer(L, f); L.touched = true; }); cmdRefresh(1); commitNow(); return 'Text size set to ' + m[1] + '.'; } },
+  // ----- size, position, rotation, opacity
+  { t: s => /\b(?:fill|cover)\b.*\b(?:canvas|screen|frame|everything|whole)\b|\bfull[\s-]?bleed\b/i.test(s), f: s => { const ts = pickTargets(s, L => L.type !== 'text' && isVisual(L)); commit(); ts.forEach(L => { L.x = S.W / 2; L.y = S.H / 2; L.w = S.W; L.h = S.H; L.rot = 0; L.touched = true; }); cmdRefresh(1); commitNow(); return 'Now filling the canvas.'; } },
+  { t: /\b(?:move|shift|nudge|push|slide)\b.*?(\d+(?:\.\d+)?)\s*(px|pixels?|%|percent)?\s*(?:to the\s*)?(left|right|up|down)\b|\b(?:left|right|up|down)\s+(?:by\s+)?(\d+(?:\.\d+)?)\s*(px|pixels?|%|percent)?/i, f: s => {
+      const m = s.match(/(\d+(?:\.\d+)?)\s*(px|pixels?|%|percent)?\s*(?:to the\s*)?(left|right|up|down)\b/i) || (() => { const q = s.match(/\b(left|right|up|down)\s+(?:by\s+)?(\d+(?:\.\d+)?)\s*(px|pixels?|%|percent)?/i); return q && [q[0], q[2], q[3], q[1]]; })();
+      if (!m) return NEXT; const ts = pickTargets(s, isVisual), pctU = /^(?:%|percent)/i.test(m[2] || ''), dir = m[3].toLowerCase(); commit();
+      ts.forEach(L => { const n = NUMV(m[1]) * (pctU ? (dir === 'left' || dir === 'right' ? S.W : S.H) / 100 : 1); if (dir === 'left') L.x -= n; else if (dir === 'right') L.x += n; else if (dir === 'up') L.y -= n; else L.y += n; L.touched = true; });
+      cmdRefresh(1); commitNow(); return 'Moved ' + dir + '.'; } },
+  { t: s => /\b(?:move|put|place|position|align|shift|keep|set|bring|centre|center|go|send|stick|pin)\b/i.test(s) && /\b(?:top|bottom|left|right|centre|center|middle|upper|lower|corner)\b/i.test(s) && !/\b(?:text|font) (?:to|size)\b/i.test(s), f: s => {
+      const low = s.toLowerCase(), p = wordsToPos(low.replace(/\b(?:bring|move|put|send)\s+(?:it\s+)?(?:to\s+)?(?:the\s+)?(?:front|back)\b/g, '')); if (!p.h && !p.v) return NEXT;
+      const ts = pickTargets(s, isVisual); commit(); ts.forEach(L => { placeAt(L, p.h, p.v); L.touched = true; }); cmdRefresh(1); commitNow(); return 'Moved.'; } },
+  { t: /\b(?:rotate|tilt|angle|turn|straighten|upright)\b/i, f: s => {
+      const ts = pickTargets(s, isVisual), m = s.match(/(-?\d+(?:\.\d+)?)\s*(?:°|deg|degrees?)?/); commit();
+      if (/\b(?:straighten|upright|reset)\b/i.test(s)) ts.forEach(L => { L.rot = 0; L.touched = true; });
+      else if (m) ts.forEach(L => { const n = NUMV(m[1]) * (/\b(?:left|anti|counter)\b/i.test(s) && NUMV(m[1]) > 0 ? -1 : 1); L.rot = Math.round((/\b(?:set|to|angle)\b/i.test(s) && !/\bby\b/i.test(s) && !/\brotate\b/i.test(s) ? n : L.rot + n) * 10) / 10; L.touched = true; });
+      else throw new CmdErr('Say how far, for example "rotate 15 degrees".');
+      cmdRefresh(1); commitNow(); return 'Rotated.'; } },
+  { t: /\b(?:flip|mirror)\b/i, f: s => { const ts = pickTargets(s, isMedia); commit(); ts.forEach(L => { L.flip = !L.flip; L.touched = true; }); cmdRefresh(1); commitNow(); return 'Flipped.'; } },
+  { t: /\b(?:opacity|transparen\w*|see[\s-]?through|translucent|solid|opaque)\b/i, f: s => {
+      const ts = pickTargets(s, isVisual), low = s.toLowerCase(), m = low.match(/(\d+(?:\.\d+)?)\s*%/); let v;
+      if (m) v = /\btransparen\w*\b/.test(low) && !/\bopacity\b/.test(low) ? 1 - NUMV(m[1]) / 100 : NUMV(m[1]) / 100;
+      else if (/\b(?:solid|opaque|fully visible)\b/.test(low)) v = 1; else v = .5;
+      commit(); ts.forEach(L => { L.opacity = clamp(v, .05, 1); L.touched = true; }); cmdRefresh(1); commitNow(); return 'Opacity is now ' + Math.round(clamp(v, .05, 1) * 100) + '%.'; } },
+  { t: /\b(?:width|height|wider|narrower|taller|shorter)\b/i, f: s => {
+      const low = s.toLowerCase(), m = low.match(/(\d+(?:\.\d+)?)\s*(px|%|percent)?/), ts = pickTargets(s, isVisual); commit();
+      ts.forEach(L => {
+        const isW = /\b(?:width|wider|narrower)\b/.test(low), isH = /\b(?:height|taller|shorter)\b/.test(low);
+        if (m) { let n = NUMV(m[1]); if (/^(?:%|percent)/.test(m[2] || '')) n = n / 100 * (isW ? S.W : S.H); if (isW) L.w = Math.max(12, n); else if (L.type !== 'text') L.h = Math.max(12, n); }
+        else { const f = /\b(?:wider|taller)\b/.test(low) ? 1.2 : .8; if (isW) L.w = Math.max(12, L.w * f); else if (L.type !== 'text') L.h = Math.max(12, L.h * f); }
+        L.touched = true; });
+      cmdRefresh(1); commitNow(); return 'Size changed.'; } },
+  { t: /\b(?:bigger|larger|enlarge|increase|grow|expand|huge|giant|smaller|shrink|reduce|decrease|tiny|minimi[sz]e|twice as (?:big|large)|double (?:the )?size|half (?:the )?size|zoom)\b/i, f: s => {
+      const low = s.toLowerCase(); if (/\b(?:volume|speed|brightness|contrast|opacity|font size|text size|duration|length|time|seconds?)\b/.test(low) && !/\b(?:size)\b/.test(low)) return NEXT;
+      const ts = pickTargets(s, isVisual), pc = low.match(/(\d+(?:\.\d+)?)\s*%/);
+      const down = /\b(?:smaller|shrink|reduce|decrease|tiny|minimi[sz]e|half)\b/.test(low);
+      let f = /\b(?:twice|double)\b/.test(low) ? 2 : /\bhalf\b/.test(low) ? .5 : pc ? (down ? 1 - NUMV(pc[1]) / 100 : 1 + NUMV(pc[1]) / 100) : (down ? .8 : 1.25);
+      if (/\b(?:huge|giant)\b/.test(low)) f = 1.8; if (/\btiny\b/.test(low)) f = .5;
+      commit(); ts.forEach(L => { scaleLayer(L, clamp(f, .05, 10)); L.touched = true; }); cmdRefresh(1); commitNow(); return (down ? 'Made it smaller.' : 'Made it bigger.'); } },
+  // ----- colour, outline, shadow, box (last, because colour words are everywhere)
+  { t: /\b(?:shadow)\b/i, f: s => { const ts = pickTargets(s, L => isVisual(L) && L.type !== 'audio'); const on = !/\b(?:no|remove|without|off|turn off|stop|disable)\b/i.test(s); commit(); ts.forEach(L => { L.shadow = on; L.touched = true; }); cmdRefresh(1); commitNow(); return 'Shadow ' + (on ? 'on' : 'off') + '.'; } },
+  { t: /\b(?:outline|stroke|border)\b/i, f: s => {
+      const media = /\bborder\b/i.test(s), ts = pickTargets(s, L => media ? isMedia(L) : (L.type === 'text' || L.type === 'shape')), cs = findColours(s), off = /\b(?:no|remove|without|off|turn off|disable)\b/i.test(s), wm = s.match(/(\d+(?:\.\d+)?)\s*(?:px|pixels?)?/); commit();
+      ts.forEach(L => {
+        const k = media ? ['bw', 'bc'] : ['sw', 'sc'], base = L.type === 'text' ? Math.max(3, L.size * .08) : 8;
+        if (off) L[k[0]] = 0; else { L[k[0]] = wm ? NUMV(wm[1]) : (L[k[0]] > 0 ? L[k[0]] : base); if (cs[0]) L[k[1]] = cs[0]; else if (!L[k[0]]) L[k[1]] = '#000000'; }
+        L.touched = true; });
+      cmdRefresh(1); commitNow(); return off ? 'Outline removed.' : 'Outline added.'; } },
+  { t: /\b(?:box|background box|highlight box|label box|strip)\b.*\b(?:behind|around|under)\b|\b(?:behind|around|under)\b.*\b(?:box|background)\b|\b(?:text|word)s?\s+background\b/i, f: s => {
+      const ts = pickTargets(s, L => L.type === 'text'), cs = findColours(s), off = /\b(?:no|remove|without|off)\b/i.test(s); commit(); ts.forEach(L => { L.boxOn = !off; if (cs[0]) L.boxColor = cs[0]; L.touched = true; }); cmdRefresh(1); commitNow(); return off ? 'Box removed.' : 'Added a box behind the text.'; } },
+  { t: s => findColours(s).length > 0 && /\b(?:make|turn|set|change|colou?r|paint|fill|dye|use|switch|to|in)\b/i.test(s), f: s => {
+      const cs = findColours(s), ts = pickTargets(s, L => L.type === 'text' || L.type === 'shape'); commit();
+      ts.forEach(L => { if (L.type === 'text') L.color = cs[0]; else L.fill = cs[0]; L.touched = true; });
+      cmdRefresh(1); commitNow(); return 'Colour changed.'; } }
+];
+
+async function runCmdSegment(seg, ctx) {
+  for (const r of RULES) {
+    const hit = r.t instanceof RegExp ? r.t.test(seg) : r.t(seg);
+    if (!hit) continue;
+    const out = await r.f(seg, ctx);
+    if (out === NEXT) continue;
+    return out || 'Done.';
+  }
+  return null;
+}
+function splitCommands(raw) {
+  CMD.quotes = [];
+  let s = raw.replace(/["“”](.+?)["“”]/g, (m, a) => { CMD.quotes.push(a); return '' + String.fromCharCode(96 + CMD.quotes.length) + ''; });
+  s = s.trim().replace(/^(?:hey|hi|ok|okay)[,!\s]+/i, '').replace(/^(?:please|kindly)\s+/i, '').replace(/^(?:can|could|would|will) you\s+(?:please\s+)?/i, '').replace(/^(?:i (?:want|need|would like|'d like)(?: you)? to|i want|let'?s|let us)\s+/i, '').replace(/\s*(?:please|thanks|thank you)[.!]*\s*$/i, '').replace(/[.!]+$/, '').trim();
+  const VERB = 'make|set|add|remove|delete|change|move|show|hide|fade|zoom|slide|rotate|play|pause|use|apply|put|find|save|export|turn|bring|send|flip|duplicate|undo|redo|mute|unmute|loop|speed|center|centre|align|appear|disappear|start|stop|record|split|trim|cut|download|give|increase|decrease|reduce|resize|scale|shrink|enlarge|colou?r|clear|spin|pan|blur|brighten|darken|lighten|stagger|arrange|shuffle|sync|place|rename';
+  return s.split(new RegExp('\\s*(?:;|,\\s*then\\b|\\bthen\\b|\\band then\\b|\\bafter that\\b|\\band\\s+(?=(?:' + VERB + ')\\b)|,\\s*(?=(?:' + VERB + ')\\b))\\s*', 'i')).map(x => x.trim()).filter(Boolean);
+}
+function layoutSummary() {
+  return S.layers.map((L, i) => (i + 1) + '. ' + typeName(L) + (L.type === 'text' ? ' "' + L.text.split('\n')[0].slice(0, 30) + '"' : L.name ? ' "' + String(L.name).slice(0, 30) + '"' : '') + ' (' + L.start.toFixed(1) + '-' + L.end.toFixed(1) + 's)' + (L.id === S.sel ? ' [selected]' : '')).slice(0, 40).join('\n') || '(nothing yet)';
+}
+const AI_PROMPT = `You turn a request for a video-collage editor into short editor commands. Reply with ONLY a JSON array of 1 to 6 strings. No explanation, no markdown.
+Every string must be a command in the style of these examples (use exactly this kind of plain wording):
+make the text bigger | make the text smaller | make it 30% bigger | set text size to 90
+make the text red | make the text yellow | add an outline to the text | add a shadow to the text | add a black box behind the text
+bold the text | make the text italic | change the text to "Hello" | use a serif font | align the text left
+add text "Hello" at the top | add captions "first line | second line" | remove captions | make the captions karaoke style
+add a star | add a heart | add a red circle | add a sticker 🔥
+move the text to the top | move it to the bottom left | center it | move it 100 px left | rotate it 15 degrees | flip it
+set opacity to 50% | make it fill the canvas | delete it | duplicate it | bring it to the front | send it to the back | hide it
+show from 2 to 6 seconds | appear at 3 seconds | disappear at 8 seconds | show for 4 seconds | show for the whole timeline
+fade in | fade out | fade in and out | slide in from the left | slide out to the right | zoom in | pop in | spin in | wipe in | typewriter | slow zoom in | float | pulse | shake | no animation
+move from left to right | grow from 50% to 100% | spin once
+black and white | warm look | cool look | vintage look | vivid | dramatic | matte | no filter | brightness 120% | contrast 130% | blur 5 | add a vignette
+volume 40% | volume 30% from 5 to 8 seconds | mute | unmute | louder | loop the music | fade the music in 2 seconds | speed 2x | trim to the first 5 seconds | split at 3 seconds
+make it a reel | make it square | make it landscape | make the video 20 seconds long | background black | background gradient blue and purple | show safe zones | auto arrange | stagger the items
+find the beats | put the photos on the beat | put the photos on every 2nd beat
+play | pause | go to 3 seconds | undo | export gif | save video | save mp3 | download png
+Refer to items by their kind ("the text", "the photo", "the video", "the music") or by their quoted name, or say "it" for the selected item. If the request cannot be done with these commands, reply with [].`;
+async function askOnlineHelper(request) {
+  const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 30000);
+  try {
+    const body = { messages: [{ role: 'system', content: AI_PROMPT }, { role: 'user', content: 'Canvas ' + S.ratio + ', timeline ' + S.dur + ' s. Items:\n' + layoutSummary() + '\n\nRequest: ' + request }], private: true };
+    const res = await fetch(CMD.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctl.signal });
+    if (res.status === 402 || res.status === 429) throw new CmdErr('The free online helper is busy (it allows about one request every 30 seconds). Try again in a moment, or use the built-in commands.');
+    if (!res.ok) throw new CmdErr('The online helper did not answer (error ' + res.status + '). Try again later.');
+    let txt = await res.text();
+    try { const j = JSON.parse(txt); if (j && !Array.isArray(j)) txt = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || j.response || j.text || j.content || txt; else if (Array.isArray(j)) txt = JSON.stringify(j); } catch (e) {}
+    const a = txt.indexOf('['), b = txt.lastIndexOf(']');
+    if (a < 0 || b < a) return [];
+    const arr = JSON.parse(txt.slice(a, b + 1));
+    return arr.filter(x => typeof x === 'string').map(x => x.trim()).filter(Boolean).slice(0, 6);
+  } catch (e) {
+    if (e instanceof CmdErr) throw e;
+    if (e && e.name === 'AbortError') throw new CmdErr('The online helper took too long. Try again.');
+    throw new CmdErr('Could not reach the online helper. Check your internet connection. The built-in commands still work offline.');
+  } finally { clearTimeout(to); }
+}
+function setCmdMsg(items, bad) { const m = $('#cmdMsg'); if (!m) return; m.innerHTML = ''; m.classList.toggle('bad', !!bad); (Array.isArray(items) ? items : [items]).forEach(t => m.append(el('div', {}, t))); }
+async function runCommandText(raw) {
+  raw = String(raw || '').trim(); if (!raw || CMD.busy) return; CMD.last = null;
+  CMD.busy = true; $('#cmdGo').disabled = true; const go = $('#cmdGo'), old = go.textContent;
+  const done = [], fail = [], unknown = [];
+  try {
+    for (const seg of splitCommands(raw)) {
+      try { const r = await runCmdSegment(seg, { async: false, raw }); if (r === null) unknown.push(seg); else done.push(r); }
+      catch (e) { if (e instanceof CmdErr) fail.push(e.message); else { console.error(e); fail.push('Something went wrong with "' + unq(seg) + '".'); } }
+    }
+    if (unknown.length) {
+      const ask = unq(unknown.join('; '));
+      if (!CMD.online) fail.push('I did not understand "' + ask + '". Try one of the examples, or tick "Use the free online AI" to let it try.');
+      else {
+        go.textContent = 'Thinking…'; setCmdMsg('Asking the free online AI (needs internet)…');
+        try {
+          const cmds = await askOnlineHelper(ask);
+          if (!cmds.length) fail.push('I could not turn "' + ask + '" into an edit. Try different words, or one of the examples.');
+          for (const c of cmds) {
+            try { const parts = splitCommands(c); for (const p of parts) { const r = await runCmdSegment(p, { async: true, raw: c }); if (r === null) fail.push('The online helper suggested "' + unq(p) + '", which I cannot do.'); else done.push(r); } }
+            catch (e) { fail.push(e instanceof CmdErr ? e.message : 'Something went wrong with "' + c + '".'); }
+          }
+          if (cmds.length && done.length) done.push('(done with the online AI)');
+        } catch (e) { fail.push(e instanceof CmdErr ? e.message : 'The online helper failed.'); }
+      }
+    }
+    commitNow();
+  } finally { CMD.busy = false; $('#cmdGo').disabled = false; go.textContent = old; }
+  setCmdMsg([...done, ...fail], !done.length && fail.length > 0);
+  if (done.length) { CMD.hist.push(raw); CMD.hi = CMD.hist.length; $('#cmdIn').value = ''; }
+  return { done, fail };
+}
+const CMD_EXAMPLES = ['Make the text bigger', 'Add text "Summer sale" at the top', 'Make it a Reel', 'Background black', 'Fade in and slide out', 'Black and white', 'Show from 2 to 6 seconds', 'Volume 30% from 5 to 8 seconds', 'Add captions "Hello everyone | Welcome to my reel"', 'Put the photos on the beat', 'Move the photo from left to right', 'Add a red star', 'Export GIF'];
+function openCmdHelp() { const d = $('#cmdHelp'); if (d) d.open = true; }
+function buildCmdBar() {
+  const box = $('#cmdBar'); if (!box) return;
+  const input = $('#cmdIn');
+  const help = $('#cmdHelpBody'); help.innerHTML = '';
+  help.append(el('div', { class: 'f', style: 'margin-bottom:6px' }, 'Tap an example to fill the box, then press Do it. Several steps can go in one sentence: "make the text red and move it to the top".'),
+    el('div', { class: 'chips' }, CMD_EXAMPLES.map(t => el('button', { class: 'chip', onclick: () => { input.value = t; input.focus(); } }, t))));
+  const ck = el('input', { type: 'checkbox', id: 'cmdOnline' }); ck.checked = CMD.online;
+  ck.addEventListener('change', () => { CMD.online = ck.checked; try { localStorage.setItem('nkt-online-helper', ck.checked ? '1' : '0'); } catch (e) {} });
+  help.append(el('div', { class: 'cmdnote' },
+    el('b', {}, 'Does this need internet?'), ' Not for the examples above. The app understands them itself, on your device, with no internet, no account and no cost.',
+    el('br'), el('b', {}, 'Online AI (optional): '), 'if you write something the app does not understand, it can ask a free public AI service (Pollinations, no sign-in) to turn your sentence into those same commands. This part ',
+    el('b', {}, 'needs internet'), ' and sends your sentence plus a short list of your items (their kind, name and times, never the pictures or sounds themselves) to that service. It is free but limited to about one request every 30 seconds, and it can be slow or unavailable.'),
+    el('div', { class: 'f chk' }, ck, el('label', { for: 'cmdOnline' }, 'Use the free online AI when the app does not understand (needs internet)')));
+  const go = () => runCommandText(input.value);
+  $('#cmdGo').addEventListener('click', go);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); go(); }
+    else if (e.key === 'ArrowUp' && CMD.hist.length) { e.preventDefault(); CMD.hi = Math.max(0, CMD.hi - 1); input.value = CMD.hist[CMD.hi] || ''; }
+    else if (e.key === 'ArrowDown' && CMD.hist.length) { e.preventDefault(); CMD.hi = Math.min(CMD.hist.length, CMD.hi + 1); input.value = CMD.hist[CMD.hi] || ''; }
+  });
+}
+
+buildCmdBar();
+
 // ---------- start ----------
 $('#vstat').textContent = window.MediaRecorder ? 'Video length follows the timeline. Saves as ' + ((pickMime() || 'video/webm').includes('mp4') ? 'MP4' : 'WebM') + '.' : 'Video recording is not available in this browser.';
-window.__nkt = { layerFx, S, assets, addFiles, autoArrange, setRatio, undoStep, commit, recordVideo, dims, hitTest, toDesign, select, deleteLayer, setPlaying, seekTime, setDur, buildTimeline, players, syncVideos, activeAt, CAP, decodeGif, loadGifFile, saveGif, parseCues, addCaptions, buildCaptionPlan, detectBeats, peaks, SND, findBeats, placeOnBeats, startVoice, stopVoice, VO };
+window.__nkt = { layerFx, S, assets, addFiles, autoArrange, setRatio, undoStep, commit, recordVideo, dims, hitTest, toDesign, select, deleteLayer, setPlaying, seekTime, setDur, buildTimeline, players, syncVideos, activeAt, CAP, decodeGif, loadGifFile, saveGif, parseCues, addCaptions, buildCaptionPlan, detectBeats, peaks, SND, findBeats, placeOnBeats, startVoice, stopVoice, VO, CMD, runCommandText, splitCommands, findColours, RULES };
 buildAll(); buildAddPanel(); buildCapPanel(); buildSndPanel(); undoInit(); schedule(); checkRestore();
 function undoInit() { U.stack = [snap()]; U.idx = 0; refreshUndoBtns(); }
 })();
