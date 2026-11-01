@@ -1429,7 +1429,7 @@ async function addFiles(files) {
   });
   if (vEnd) { if (S.durAuto && !hadVideo && st === 0) setDur(vEnd); else ensureDur(vEnd); }
   S.sel = made.length === 1 ? made[0].id : null;
-  if (fresh && made.some(isMedia)) autoArrange(true);
+  if (fresh && made.some(isMedia)) autoArrange(true, true);
   buildAll(); commitNow(); schedule();
   if (cut) toast('The sound is longer than the timeline, so it stops at ' + S.dur + ' s. Select it and press "Fit timeline to this sound" to use all of it.');
 }
@@ -1448,7 +1448,7 @@ function treemap(r, n) {
   return [...treemap({ x: r.x, y: r.y, w: r.w, h: h1 }, k), ...treemap({ x: r.x, y: r.y + h1, w: r.w, h: r.h - h1 }, n - k)];
 }
 function shuffled(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
-function autoArrange(quiet) {
+function autoArrange(quiet, keep) { // keep: leave every picture at its own shape (no cropping)
   const M = S.layers.filter(l => isMedia(l) && activeAt(l, S.t));
   if (!M.length) { if (!quiet) toast('Add some photos or videos first.'); return; }
   if (!quiet) commit();
@@ -1466,6 +1466,7 @@ function autoArrange(quiet) {
   pick.order.forEach((L, i) => {
     const r = pick.rects[i];
     L.x = r.x + r.w / 2; L.y = r.y + r.h / 2; L.w = Math.max(20, r.w - g); L.h = Math.max(20, r.h - g);
+    if (keep) { const a = assets.get(L.asset), ar = a.w / a.h; if (L.w / L.h > ar) L.w = L.h * ar; else L.h = L.w / ar; }
     L.rot = 0; L.zoom = 1; L.px = 0; L.py = 0; L.fit = 'cover'; L.touched = false;
   });
   if (!quiet) { buildItem(); commitNow(); schedule(); }
@@ -3248,13 +3249,24 @@ const RULES = [
   { t: s => /\bbeats?\b/i.test(s) && /\b(?:find|detect|mark|analy[sz]e|show|get|listen|where)\b/i.test(s), f: async () => { await beatSource(); await findBeats(); if (S.beats.length < 3) throw new CmdErr('I could not find a clear beat in the music.'); return 'Beats marked on the time ruler.'; } },
   // ----- the canvas
   { t: /\bsafe[\s-]?zones?\b/i, f: s => { const on = !/\b(?:hide|off|remove|disable|without|no|stop)\b/i.test(s); if ($('#safeZones').checked !== on) $('#safeZones').click(); return 'Reels safe zones ' + (on ? 'shown' : 'hidden') + '.'; } },
-  { t: s => { const l = s.toLowerCase(); return /\b(?:make|set|switch|change|use|turn|convert|canvas|format|ratio|size)\b/.test(l) && !/\badd\b/.test(l) && (/\b(?:9\s*[:x\/]\s*16|16\s*[:x\/]\s*9|1\s*[:x\/]\s*1|4\s*[:x\/]\s*5|3\s*[:x\/]\s*4|4\s*[:x\/]\s*3|2\s*[:x\/]\s*3|3\s*[:x\/]\s*2)\b/.test(l) || /\b(?:reels?|stor(?:y|ies)|shorts?|tiktok|vertical|portrait|square|landscape|widescreen|horizontal|youtube)\b/.test(l)) && !/\b(?:text|photo|picture|image|video|clip|shape|bigger|smaller)\b/.test(l.replace(/\b(?:the )?video\b(?= (?:a )?(?:reel|story|vertical|square|landscape))/, '')) ; },
+  { t: s => { const l = s.toLowerCase(); const num = /\b(?:9\s*[:x\/]\s*16|16\s*[:x\/]\s*9|1\s*[:x\/]\s*1|4\s*[:x\/]\s*5|3\s*[:x\/]\s*4|4\s*[:x\/]\s*3|2\s*[:x\/]\s*3|3\s*[:x\/]\s*2)\b/.test(l);
+      if (!/\b(?:make|set|switch|change|use|turn|convert|canvas|format|ratio|size|resize)\b/.test(l) || /\badd\b/.test(l)) return false;
+      if (num) return !/\b(?:text|font|bigger|smaller|volume|speed)\b/.test(l);
+      return /\b(?:reels?|stor(?:y|ies)|shorts?|tiktok|vertical|portrait|square|landscape|widescreen|horizontal|youtube)\b/.test(l) && !/\b(?:text|photo|picture|image|video|clip|shape|bigger|smaller)\b/.test(l.replace(/\b(?:the )?video\b(?= (?:a )?(?:reel|story|vertical|square|landscape))/, '')); },
     f: s => {
       const l = s.toLowerCase(); let key = null;
       const m = l.match(/\b(9|16|1|4|3|2)\s*[:x\/]\s*(16|9|1|5|4|3|2)\b/); if (m) key = m[1] + ':' + m[2];
       if (!key || !RATIO_KEYS[key]) key = /\b(?:reels?|stor(?:y|ies)|shorts?|tiktok|vertical|portrait)\b/.test(l) ? '9:16' : /\bsquare\b/.test(l) ? '1:1' : /\b(?:landscape|widescreen|horizontal|youtube)\b/.test(l) ? '16:9' : null;
       if (!key || !RATIO_KEYS[key]) throw new CmdErr('I know the shapes 9:16, 16:9, 1:1, 4:5, 3:4, 4:3, 2:3 and 3:2.');
-      setRatio(RATIO_KEYS[key][0], RATIO_KEYS[key][1], key); return 'Canvas is now ' + key + '.'; } },
+      setRatio(RATIO_KEYS[key][0], RATIO_KEYS[key][1], key);
+      const sel = getSel(), media = S.layers.filter(isMedia), mine = sel && isMedia(sel) ? sel : (media.length === 1 ? media[0] : null);
+      if (mine && /\b(?:video|clip|photo|picture|image|selected|this|it)\b/.test(l) && !/\b(?:canvas|whole thing|everything)\b/.test(l)) { commit(); Object.assign(mine, { x: S.W / 2, y: S.H / 2, w: S.W, h: S.H, rot: 0, zoom: 1, px: 0, py: 0, fit: 'cover', touched: true }); cmdRefresh(1); commitNow(); return 'Canvas is now ' + key + ' and the ' + typeName(mine) + ' fills it (the edges may be cropped). To keep all of it, say "fit the video to the canvas".'; }
+      return 'Canvas is now ' + key + '.'; } },
+  // keep a picture's own shape: "fit the video to the canvas", "original size", "don't crop"
+  { t: s => /\b(?:original (?:size|shape|aspect|ratio|proportions)|don'?t crop|no crop|without crop(?:ping)?|whole (?:video|picture|photo|image|clip)|(?:uncrop|un-crop))\b/i.test(s) || (/\bfit\b/i.test(s) && /\b(?:canvas|screen|frame|inside|within|in the)\b/i.test(s)), f: s => {
+      const ts = pickTargets(s, isMedia), toCanvas = /\b(?:canvas|screen|whole frame)\b/i.test(s); commit();
+      ts.forEach(L => { const a = assets.get(L.asset), ar = a.w / a.h, bw = toCanvas ? S.W : L.w, bh = toCanvas ? S.H : L.h; let w = bw, h = bw / ar; if (h > bh) { h = bh; w = bh * ar; } Object.assign(L, { w, h, zoom: 1, px: 0, py: 0, fit: 'cover', touched: true }); if (toCanvas) { L.x = S.W / 2; L.y = S.H / 2; } });
+      cmdRefresh(1); commitNow(); return toCanvas ? 'It now fits inside the canvas with nothing cropped.' : 'Back to its original shape, nothing cropped.'; } },
   { t: /\b(?:background|backdrop)\b/i, f: s => {
       const cs = findColours(s), grad = /\bgradient|blend|fade between\b/i.test(s) || cs.length >= 2;
       if (!cs.length) { if (/\bgradient\b/i.test(s)) { commit(); S.grad = true; buildCanvas(); commitNow(); schedule(); return 'Background gradient on.'; } throw new CmdErr('Which colour? For example "background black" or "background gradient blue and purple".'); }
@@ -3563,7 +3575,7 @@ fade in | fade out | fade in and out | slide in from the left | slide out to the
 move from left to right | grow from 50% to 100% | spin once
 black and white | warm look | cool look | vintage look | vivid | dramatic | matte | no filter | brightness 120% | contrast 130% | blur 5 | add a vignette
 volume 40% | volume 30% from 5 to 8 seconds | mute | unmute | louder | loop the music | fade the music in 2 seconds | speed 2x | trim to the first 5 seconds | split at 3 seconds
-make it a reel | make it square | make it landscape | make the video 20 seconds long | background black | background gradient blue and purple | show safe zones | auto arrange | stagger the items
+make the video 9:16 | fit the video to the canvas | keep its original shape (no crop) | make it a reel | make it square | make it landscape | make the video 20 seconds long | background black | background gradient blue and purple | show safe zones | auto arrange | stagger the items
 find the beats | put the photos on the beat | put the photos on every 2nd beat
 play | pause | go to 3 seconds | undo | export gif | save video | save mp3 | download png
 Refer to items by their kind ("the text", "the photo", "the video", "the music") or by their quoted name, or say "it" for the selected item. If the request cannot be done with these commands, reply with [].`;
@@ -3618,7 +3630,7 @@ async function runCommandText(raw) {
   if (done.length) { CMD.hist.push(raw); CMD.hi = CMD.hist.length; $('#cmdIn').value = ''; }
   return { done, fail };
 }
-const CMD_EXAMPLES = ['Make the text bigger', 'Add text "Summer sale" at the top', 'Make it a Reel', 'Background black', 'Fade in and slide out', 'Black and white', 'Show from 2 to 6 seconds', 'Volume 30% from 5 to 8 seconds', 'Add captions "Hello everyone | Welcome to my reel"', 'Put the photos on the beat', 'Move the photo from left to right', 'Add a red star', 'Export GIF'];
+const CMD_EXAMPLES = ['Make the text bigger', 'Add text "Summer sale" at the top', 'Make it a Reel', 'Make the video 9:16', 'Fit the video to the canvas', 'Background black', 'Fade in and slide out', 'Black and white', 'Show from 2 to 6 seconds', 'Volume 30% from 5 to 8 seconds', 'Add captions "Hello everyone | Welcome to my reel"', 'Put the photos on the beat', 'Move the photo from left to right', 'Add a red star', 'Export GIF'];
 function openCmdHelp() { const d = $('#cmdHelp'); if (d) d.open = true; }
 function buildCmdBar() {
   const box = $('#cmdBar'); if (!box) return;
