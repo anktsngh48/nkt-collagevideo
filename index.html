@@ -178,6 +178,8 @@
           <button id="play" class="primary">▶ Play</button>
           <span class="tl-time" id="tlTime">0:00.0 / 0:10.0</span>
           <label class="inl">Length <input type="number" id="tlLen" min="1" max="600" step="0.5" value="10"> s</label>
+          <button id="tlSplit" title="Cut the selected item in two at the playhead (key S)">✂ Split</button>
+          <button id="tlCopy" title="Copy the selected item and put the copy right after it on the timeline">⧉ Copy</button>
           <label class="inl"><input type="checkbox" id="tlLoop"> Loop</label>
           <label class="inl" title="Only changes how fast the preview plays while you edit. Saved videos always run at normal speed.">Preview speed <select id="tlSpd"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option><option value="4">4×</option></select></label>
           <span class="tlz" title="Zoom the timeline (or hold Ctrl and scroll over it)">Zoom <button id="tlZm" aria-label="Zoom timeline out">−</button><button id="tlZp" aria-label="Zoom timeline in">＋</button><button id="tlZf" title="Fit the whole timeline">Fit</button><span id="tlZv">1×</span></span>
@@ -1266,6 +1268,19 @@ function duplicateLayer(id) {
   S.layers.splice(S.layers.indexOf(L) + 1, 0, c);
   S.sel = c.id; buildAll(); commitNow(); schedule();
 }
+function copyAfter(id, n) { // copy a clip and put the copy right after it on the timeline
+  const L = S.layers.find(l => l.id === id); if (!L) return;
+  n = clamp(Math.round(n || 1), 1, 20); commit();
+  let at = S.layers.indexOf(L), prevEnd = L.end, len = L.end - L.start, last = null, grew = false;
+  for (let i = 0; i < n; i++) {
+    const c = JSON.parse(JSON.stringify(L, (k, v) => k[0] === '_' ? undefined : v));
+    c.id = uid(); c.touched = true; c.full = false; c.start = Math.round(prevEnd * 100) / 100; c.end = Math.round((prevEnd + len) * 100) / 100; delete c.aStart; delete c.aEnd;
+    if (c.end > S.dur + 1e-6) { setDur(Math.ceil(c.end * 10) / 10); grew = true; }
+    S.layers.splice(++at, 0, c); prevEnd = c.end; last = c;
+  }
+  S.sel = last.id; buildAll(); commitNow(); schedule();
+  toast((n > 1 ? n + ' copies' : 'Copy') + ' placed after it' + (grew ? '; the timeline was made longer to fit.' : '.'));
+}
 function moveLayer(id, to) { // to: 'up' | 'down' | 'front' | 'back'
   const i = S.layers.findIndex(l => l.id === id); if (i < 0) return;
   commit();
@@ -2074,7 +2089,7 @@ function snapTimes(cands, skip) {
     if (bar) {
       const L = S.layers.find(l => l.id === bar.dataset.id); if (!L) return;
       commit(); select(L.id);
-      tlDrag = { L, mode: e.target.dataset.h || 'move', x0: e.clientX, start0: L.start, end0: L.end, rect };
+      tlDrag = { L, mode: e.target.dataset.h || 'move', x0: e.clientX, start0: L.start, end0: L.end, trimIn0: L.trimIn, rect };
       inner.setPointerCapture(e.pointerId); return;
     }
     if (e.clientX >= rect.left && !e.target.closest('.tl-lab')) { tlDrag = { mode: 'scrub', rect }; inner.setPointerCapture(e.pointerId); seekTime((e.clientX - rect.left) / rect.width * S.dur); }
@@ -2089,6 +2104,10 @@ function snapTimes(cands, skip) {
       s = clamp(s, 0, S.dur - len); L.start = s; L.end = s + len;
     } else if (d.mode === 'l') {
       let s = d.start0 + dt; if (!free) { const b = snapTimes([s], L); if (b !== null) s += b; }
+      if (L.type === 'video' || L.type === 'audio') { // cutting the start of a clip: the picture stays in time, the beginning is trimmed off
+        const sp = L.speed || 1, lo = Math.max(0, d.start0 - d.trimIn0 / sp), hi = Math.min(L.end - .1, d.start0 + (L.trimOut - .1 - d.trimIn0) / sp);
+        s = clamp(s, lo, Math.max(lo, hi)); L.trimIn = Math.round(clamp(d.trimIn0 + (s - d.start0) * sp, 0, L.trimOut - .1) * 100) / 100; L.fitTrim = false;
+      }
       L.start = clamp(s, 0, L.end - .1);
     } else {
       let en = d.end0 + dt; if (!free) { const b = snapTimes([en], L); if (b !== null) en += b; }
@@ -2113,6 +2132,8 @@ function setPreviewSpeed(r) {
   PREV.rate = r; const sel = $('#tlSpd'); if (sel) { if (![...sel.options].some(o => +o.value === r)) sel.append(el('option', { value: r }, r + '×')); sel.value = String(r); }
   syncVideos(); schedule();
 }
+$('#tlSplit').addEventListener('click', () => { const L = getSel(); if (!L) { toast('Click an item on the timeline first.'); return; } splitLayer(L.id); });
+$('#tlCopy').addEventListener('click', () => { const L = getSel(); if (!L) { toast('Click an item on the timeline first.'); return; } copyAfter(L.id, 1); });
 $('#tlSpd').addEventListener('change', e => setPreviewSpeed(+e.target.value));
 $('#tlZp').addEventListener('click', () => zoomTimeline(TLZ.z * 1.6));
 $('#tlZm').addEventListener('click', () => zoomTimeline(TLZ.z / 1.6));
@@ -3529,7 +3550,7 @@ const RULES = [
   // ----- order, delete, duplicate, hide
   { t: s => /\b(?:bring|move|put|send|go|place)\b/i.test(s) && /\b(?:front|forward|on top of (?:everything|all)|over everything)\b/i.test(s), f: s => { const ts = pickTargets(s, isVisual); ts.forEach(L => moveLayer(L.id, 'front')); return 'Brought to the front.'; } },
   { t: s => /\b(?:send|move|put|push|go)\b/i.test(s) && /\b(?:to the back|backward|behind everything|at the back|to back|back of)\b|\bsend (?:it )?back\b/i.test(s), f: s => { const ts = pickTargets(s, isVisual); ts.forEach(L => moveLayer(L.id, 'back')); return 'Sent to the back.'; } },
-  { t: /^(?:duplicate|copy|clone)\b|\bmake (?:a )?cop(?:y|ies)\b/i, f: s => { const ts = pickTargets(s, () => true); ts.forEach(L => duplicateLayer(L.id)); return 'Duplicated.'; } },
+  { t: /^(?:duplicate|copy|clone)\b|\bmake (?:a )?cop(?:y|ies)\b/i, f: s => { const ts = pickTargets(s, () => true), m = s.match(/(\d+)\s*(?:times|copies|more)/i), n = m ? +m[1] : 1; let timed = false; ts.forEach(L => { if (L.type === 'video' || L.type === 'audio') { copyAfter(L.id, n); timed = true; } else duplicateLayer(L.id); }); return timed ? 'Copied and placed after the original.' : 'Duplicated.'; } },
   { t: s => /^(?:delete|remove|erase|trash|get rid of|take away|take out)\b/i.test(s) && !/\b(?:captions?|beats?|keyframes?|filters?|effects?|animations?|transitions?|background|border|outline|shadow|blur|vignette|safe|fade|box)\b/i.test(s) && !/\d/.test(s), f: s => { const ts = pickTargets(s, () => true); const ids = ts.map(L => L.id); ids.forEach(id => deleteLayer(id)); return 'Deleted ' + (ids.length > 1 ? ids.length + ' items.' : 'it.'); } },
   { t: /^(?:hide|unhide|show|reveal)\b(?!.*\d)|\bmake (?:it|them|the \w+) (?:invisible|visible)\b/i, f: s => { const on = /^(?:unhide|show|reveal)\b|\bvisible\b/i.test(s) && !/\binvisible\b/i.test(s); const ts = pickTargets(s, () => true); commit(); ts.forEach(L => { L.hidden = !on; L.touched = true; }); cmdRefresh(1); commitNow(); return on ? 'Showing it.' : 'Hidden. Say "show it" to bring it back.'; } },
   // ----- text
